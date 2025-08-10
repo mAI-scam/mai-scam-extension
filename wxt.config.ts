@@ -8,4 +8,16 @@ export default defineConfig({
     plugins: [tailwindcss()],
   }),
   srcDir: 'src',
+  manifest: {
+    permissions: [
+      'activeTab',
+      'tabs'
+    ],
+    host_permissions: [
+      '*://mail.google.com/*'
+    ],
+    content_security_policy: {
+      extension_pages: "script-src 'self'; object-src 'self'"
+    }
+  },
 });
