@@ -1,5 +1,8 @@
+import { analyzeEmail, AnalysisRequest, AnalysisResponse } from '../utils/mockApi';
+
 export default defineContentScript({
   matches: ['*://mail.google.com/*'],
+  cssInjectionMode: 'ui',
   main() {
     console.log('Gmail scraper content script loaded');
     
@@ -294,12 +297,363 @@ export default defineContentScript({
       }
     }
 
+    // Function to create and show analysis modal on Gmail page
+    function showAnalysisModal(result: any, loading: boolean = false) {
+      // Remove existing modal if any
+      const existingModal = document.getElementById('maiscam-analysis-modal');
+      if (existingModal) {
+        existingModal.remove();
+      }
+
+      // Create modal container
+      const modalContainer = document.createElement('div');
+      modalContainer.id = 'maiscam-analysis-modal';
+      modalContainer.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      `;
+
+      // Create modal content
+      const modal = document.createElement('div');
+      modal.style.cssText = `
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        max-width: 400px;
+        width: 90%;
+        max-height: 90vh;
+        overflow-y: auto;
+      `;
+
+      // Modal header
+      const header = document.createElement('div');
+      header.style.cssText = `
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px;
+        border-bottom: 1px solid #e5e7eb;
+      `;
+
+      const headerLeft = document.createElement('div');
+      headerLeft.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+      
+      const icon = document.createElement('div');
+      icon.style.cssText = `
+        width: 24px;
+        height: 24px;
+        background-color: #ef4444;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 12px;
+        font-weight: bold;
+      `;
+      icon.textContent = '🛡️';
+
+      const title = document.createElement('h3');
+      title.style.cssText = 'font-size: 18px; font-weight: 600; color: #111827; margin: 0;';
+      title.textContent = 'mAIscam Active';
+
+      headerLeft.appendChild(icon);
+      headerLeft.appendChild(title);
+
+      const closeButton = document.createElement('button');
+      closeButton.style.cssText = `
+        background: none;
+        border: none;
+        color: #9ca3af;
+        cursor: pointer;
+        font-size: 24px;
+        padding: 0;
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      `;
+      closeButton.innerHTML = '×';
+      closeButton.onclick = () => modalContainer.remove();
+
+      header.appendChild(headerLeft);
+      header.appendChild(closeButton);
+
+      // Modal body
+      const body = document.createElement('div');
+      body.style.cssText = 'padding: 24px;';
+
+      if (loading) {
+        // Loading state
+        const loadingDiv = document.createElement('div');
+        loadingDiv.style.cssText = 'text-align: center; padding: 32px 0;';
+        
+        const spinner = document.createElement('div');
+        spinner.style.cssText = `
+          width: 48px;
+          height: 48px;
+          border: 2px solid #e5e7eb;
+          border-top: 2px solid #ef4444;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+          margin: 0 auto 16px;
+        `;
+        
+        const loadingText = document.createElement('p');
+        loadingText.style.cssText = 'color: #6b7280; margin: 0;';
+        loadingText.textContent = 'Analyzing email...';
+        
+        loadingDiv.appendChild(spinner);
+        loadingDiv.appendChild(loadingText);
+        body.appendChild(loadingDiv);
+      } else if (result) {
+        // Analysis result
+        const getRiskColor = (riskLevel: string) => {
+          const level = riskLevel.toLowerCase();
+          if (level === 'high' || level === '高') return '#ef4444';
+          if (level === 'medium' || level === '中') return '#f59e0b';
+          return '#10b981';
+        };
+
+        const getRiskBg = (riskLevel: string) => {
+          const level = riskLevel.toLowerCase();
+          if (level === 'high' || level === '高') return '#fef2f2';
+          if (level === 'medium' || level === '中') return '#fffbeb';
+          return '#f0fdf4';
+        };
+
+        const getRiskBorder = (riskLevel: string) => {
+          const level = riskLevel.toLowerCase();
+          if (level === 'high' || level === '高') return '#fecaca';
+          if (level === 'medium' || level === '中') return '#fed7aa';
+          return '#bbf7d0';
+        };
+
+        // Risk level badge
+        const riskContainer = document.createElement('div');
+        riskContainer.style.cssText = 'text-align: center; margin-bottom: 24px;';
+        
+        const riskBadge = document.createElement('div');
+        riskBadge.style.cssText = `
+          display: inline-flex;
+          align-items: center;
+          padding: 8px 16px;
+          border-radius: 9999px;
+          color: white;
+          font-weight: 600;
+          background-color: ${getRiskColor(result.risk_level)};
+          margin-bottom: 8px;
+        `;
+        riskBadge.innerHTML = `<span style="margin-right: 8px;">⚠️</span>${result.risk_level.toUpperCase()} RISK`;
+        
+        const percentage = document.createElement('div');
+        percentage.style.cssText = 'font-size: 18px; font-weight: bold; color: #111827;';
+        percentage.textContent = result.risk_level === '高' || result.risk_level.toLowerCase() === 'high' ? '79%' : 
+                                result.risk_level === '中' || result.risk_level.toLowerCase() === 'medium' ? '45%' : '15%';
+        
+        riskContainer.appendChild(riskBadge);
+        riskContainer.appendChild(percentage);
+
+        // Analysis section
+        const analysisBox = document.createElement('div');
+        analysisBox.style.cssText = `
+          padding: 16px;
+          border-radius: 8px;
+          border: 1px solid ${getRiskBorder(result.risk_level)};
+          background-color: ${getRiskBg(result.risk_level)};
+          margin-bottom: 16px;
+        `;
+        
+        const analysisTitle = document.createElement('h4');
+        analysisTitle.style.cssText = `
+          font-weight: 600;
+          color: ${getRiskColor(result.risk_level)};
+          margin: 0 0 8px 0;
+          font-size: 14px;
+        `;
+        analysisTitle.textContent = '📊 Analysis';
+        
+        const analysisText = document.createElement('p');
+        analysisText.style.cssText = 'color: #374151; font-size: 14px; line-height: 1.5; margin: 0;';
+        analysisText.textContent = result.analysis;
+        
+        analysisBox.appendChild(analysisTitle);
+        analysisBox.appendChild(analysisText);
+
+        // Recommended action section
+        const actionBox = document.createElement('div');
+        actionBox.style.cssText = `
+          padding: 16px;
+          border-radius: 8px;
+          border: 1px solid ${getRiskBorder(result.risk_level)};
+          background-color: ${getRiskBg(result.risk_level)};
+          margin-bottom: 16px;
+        `;
+        
+        const actionTitle = document.createElement('h4');
+        actionTitle.style.cssText = `
+          font-weight: 600;
+          color: ${getRiskColor(result.risk_level)};
+          margin: 0 0 8px 0;
+          font-size: 14px;
+        `;
+        actionTitle.textContent = '💡 Recommended Action';
+        
+        const actionText = document.createElement('p');
+        actionText.style.cssText = 'color: #374151; font-size: 14px; line-height: 1.5; margin: 0;';
+        actionText.textContent = result.recommended_action;
+        
+        actionBox.appendChild(actionTitle);
+        actionBox.appendChild(actionText);
+
+        // Action buttons
+        const buttonContainer = document.createElement('div');
+        buttonContainer.style.cssText = 'display: flex; gap: 12px; padding-top: 16px;';
+        
+        const reportButton = document.createElement('button');
+        reportButton.style.cssText = `
+          flex: 1;
+          background-color: #ef4444;
+          color: white;
+          font-weight: 500;
+          padding: 8px 16px;
+          border-radius: 8px;
+          border: none;
+          cursor: pointer;
+          transition: background-color 0.2s;
+        `;
+        reportButton.textContent = 'REPORT FRAUD';
+        reportButton.onmouseover = () => reportButton.style.backgroundColor = '#dc2626';
+        reportButton.onmouseout = () => reportButton.style.backgroundColor = '#ef4444';
+        
+        const dismissButton = document.createElement('button');
+        dismissButton.style.cssText = `
+          flex: 1;
+          background-color: #e5e7eb;
+          color: #374151;
+          font-weight: 500;
+          padding: 8px 16px;
+          border-radius: 8px;
+          border: none;
+          cursor: pointer;
+          transition: background-color 0.2s;
+        `;
+        dismissButton.textContent = 'DISMISS';
+        dismissButton.onclick = () => modalContainer.remove();
+        dismissButton.onmouseover = () => dismissButton.style.backgroundColor = '#d1d5db';
+        dismissButton.onmouseout = () => dismissButton.style.backgroundColor = '#e5e7eb';
+        
+        buttonContainer.appendChild(reportButton);
+        buttonContainer.appendChild(dismissButton);
+
+        // Footer
+        const footer = document.createElement('div');
+        footer.style.cssText = `
+          text-align: center;
+          font-size: 12px;
+          color: #6b7280;
+          padding-top: 16px;
+          border-top: 1px solid #e5e7eb;
+          margin-top: 16px;
+        `;
+        footer.textContent = 'Full analysis shown in email.';
+
+        body.appendChild(riskContainer);
+        body.appendChild(analysisBox);
+        body.appendChild(actionBox);
+        body.appendChild(buttonContainer);
+        body.appendChild(footer);
+      }
+
+      // Add CSS animation for spinner
+      if (loading) {
+        const style = document.createElement('style');
+        style.textContent = `
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `;
+        document.head.appendChild(style);
+      }
+
+      modal.appendChild(header);
+      modal.appendChild(body);
+      modalContainer.appendChild(modal);
+      
+      // Close modal when clicking backdrop
+      modalContainer.onclick = (e) => {
+        if (e.target === modalContainer) {
+          modalContainer.remove();
+        }
+      };
+
+      document.body.appendChild(modalContainer);
+    }
+
+    // Function to analyze email and show modal
+    async function analyzeCurrentEmail(targetLanguage: string = 'zh') {
+      const gmailData = extractGmailData();
+      if (!gmailData) {
+        console.error('No Gmail data available for analysis');
+        return;
+      }
+
+      // Log extracted email data in JSON format
+      const emailJson = {
+        title: gmailData.subject,
+        content: gmailData.content,
+        from_email: gmailData.from,
+        target_language: targetLanguage
+      };
+      console.log('📧 Extracted Email Data JSON:', JSON.stringify(emailJson, null, 2));
+
+      // Show loading modal
+      showAnalysisModal(null, true);
+
+      try {
+        const request: AnalysisRequest = {
+          title: gmailData.subject,
+          content: gmailData.content,
+          from_email: gmailData.from,
+          target_language: targetLanguage
+        };
+
+        const response: AnalysisResponse = await analyzeEmail(request);
+        console.log('🔍 API Analysis Response:', JSON.stringify(response, null, 2));
+        
+        if (response.success && response.data[targetLanguage]) {
+          // Show result modal
+          showAnalysisModal(response.data[targetLanguage], false);
+        } else {
+          console.error('Failed to analyze email');
+          document.getElementById('maiscam-analysis-modal')?.remove();
+        }
+      } catch (err) {
+        console.error('Error analyzing email:', err);
+        document.getElementById('maiscam-analysis-modal')?.remove();
+      }
+    }
+
     // Listen for messages from popup requesting data
     browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.type === 'GET_GMAIL_DATA') {
         const gmailData = extractGmailData();
         console.log('Manual Gmail data extraction requested:', gmailData);
         sendResponse(gmailData);
+      } else if (message.type === 'ANALYZE_EMAIL') {
+        analyzeCurrentEmail(message.targetLanguage || 'zh');
+        sendResponse({ success: true });
       }
     });
 

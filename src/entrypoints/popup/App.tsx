@@ -6,30 +6,61 @@ interface GmailData {
   content: string;
 }
 
+// Language options with their display names
+const LANGUAGE_OPTIONS = [
+  { code: 'en', name: 'English' },
+  { code: 'ms', name: 'Bahasa Malaysia' },
+  { code: 'zh', name: '中文 (Chinese)' },
+  { code: 'vi', name: 'Tiếng Việt' },
+  { code: 'th', name: 'ไทย (Thai)' },
+  { code: 'fil', name: 'Filipino' },
+  { code: 'id', name: 'Bahasa Indonesia' },
+  { code: 'jv', name: 'Basa Jawa' },
+  { code: 'su', name: 'Basa Sunda' },
+  { code: 'km', name: 'ខ្មែរ (Khmer)' },
+  { code: 'lo', name: 'ລາວ (Lao)' },
+  { code: 'my', name: 'မြန်မာ (Myanmar)' },
+  { code: 'ta', name: 'தமிழ் (Tamil)' }
+];
+
 function App() {
-  const [gmailData, setGmailData] = useState<GmailData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [extractedData, setExtractedData] = useState<GmailData | null>(null);
+  const [selectedLanguage, setSelectedLanguage] = useState<string>('zh');
 
-  // Function to extract Gmail data
-  const extractGmailData = async () => {
+  // Function to analyze email for scam - extract data and trigger content script modal
+  const analyzeEmailForScam = async () => {
     setLoading(true);
     setError(null);
-    setGmailData(null); // Clear previous data
+    setExtractedData(null);
     
     try {
-      // Send message to background script to get Gmail data
-      const response = await browser.runtime.sendMessage({ type: 'GET_GMAIL_DATA' });
-      console.log('Popup received Gmail data:', response);
-      
-      if (response) {
-        setGmailData(response);
+      // First, extract Gmail data to show in popup
+      const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+      if (tabs[0]?.id && tabs[0].url?.includes('mail.google.com')) {
+        // Get Gmail data
+        const gmailData = await browser.tabs.sendMessage(tabs[0].id, { type: 'GET_GMAIL_DATA' });
+        console.log('Extracted Gmail data:', gmailData);
+        
+        if (gmailData) {
+          setExtractedData(gmailData);
+          
+          // Then send message to content script to analyze and show modal
+          await browser.tabs.sendMessage(tabs[0].id, { 
+            type: 'ANALYZE_EMAIL', 
+            targetLanguage: selectedLanguage 
+          });
+          console.log('Analysis request sent to content script');
+        } else {
+          setError('No email data found. Make sure you have an email open in Gmail.');
+        }
       } else {
-        setError('No Gmail data found. Make sure you are on a Gmail page with an open email.');
+        setError('Please make sure you are on a Gmail page with an email open.');
       }
     } catch (err) {
-      console.error('Error fetching Gmail data:', err);
-      setError('Error fetching Gmail data. Make sure you are on Gmail.');
+      console.error('Error processing email:', err);
+      setError('Error processing email. Make sure you are on Gmail with an email open.');
     } finally {
       setLoading(false);
     }
@@ -38,14 +69,50 @@ function App() {
   return (
     <div className="w-96 min-h-96 p-4 bg-white">
       <div className="mb-4">
-        <h1 className="text-xl font-bold text-gray-800 mb-3">Gmail Email Scraper</h1>
-        <button
-          onClick={extractGmailData}
-          disabled={loading}
-          className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-green-400 disabled:cursor-not-allowed transition-colors font-medium"
-        >
-          {loading ? 'Extracting...' : '📧 Extract Gmail'}
-        </button>
+        <h1 className="text-xl font-bold text-gray-800 mb-3">mAIscam Extension</h1>
+        <div className="space-y-3">
+          {/* Language Selector */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              🌐 Analysis Language
+            </label>
+            <select
+              value={selectedLanguage}
+              onChange={(e) => setSelectedLanguage(e.target.value)}
+              disabled={loading}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed text-sm"
+            >
+              {LANGUAGE_OPTIONS.map((lang) => (
+                <option key={lang.code} value={lang.code}>
+                  {lang.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="space-y-2">
+            <button
+              onClick={analyzeEmailForScam}
+              disabled={loading}
+              className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed transition-colors font-medium"
+            >
+              {loading ? 'Analyzing...' : '🛡️ Analyze for Scam'}
+            </button>
+            
+            {extractedData && (
+              <button
+                onClick={() => {
+                  setExtractedData(null);
+                  setError(null);
+                }}
+                className="w-full px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors font-medium text-sm"
+              >
+                🔄 Clear Results
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {error && (
@@ -54,22 +121,44 @@ function App() {
         </div>
       )}
 
-      {gmailData ? (
+      {extractedData ? (
         <div className="space-y-4">
-          <div className="bg-gray-50 p-3 rounded-lg">
-            <h3 className="font-semibold text-gray-700 mb-2">📧 Subject</h3>
-            <p className="text-sm text-gray-600 break-words">{gmailData.subject}</p>
+          <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-green-600">✅</span>
+              <h3 className="font-semibold text-green-800">Email Content Extracted</h3>
+            </div>
+            <p className="text-xs text-green-600">
+              Content extracted and analysis initiated in{' '}
+              <span className="font-medium">
+                {LANGUAGE_OPTIONS.find(lang => lang.code === selectedLanguage)?.name || selectedLanguage}
+              </span>
+            </p>
           </div>
 
-          <div className="bg-gray-50 p-3 rounded-lg">
-            <h3 className="font-semibold text-gray-700 mb-2">👤 From</h3>
-            <p className="text-sm text-gray-600 break-words">{gmailData.from}</p>
-          </div>
+          <div className="space-y-3">
+            <div className="bg-gray-50 p-3 rounded-lg">
+              <h4 className="font-semibold text-gray-700 mb-2 text-sm">📧 Subject</h4>
+              <p className="text-sm text-gray-600 break-words">{extractedData.subject}</p>
+            </div>
 
-          <div className="bg-gray-50 p-3 rounded-lg">
-            <h3 className="font-semibold text-gray-700 mb-2">📄 Content</h3>
-            <div className="text-sm text-gray-600 max-h-64 overflow-y-auto break-words bg-white p-3 rounded border">
-              <pre className="whitespace-pre-wrap font-sans">{gmailData.content}</pre>
+            <div className="bg-gray-50 p-3 rounded-lg">
+              <h4 className="font-semibold text-gray-700 mb-2 text-sm">👤 From</h4>
+              <p className="text-sm text-gray-600 break-words">{extractedData.from}</p>
+            </div>
+
+            <div className="bg-gray-50 p-3 rounded-lg">
+              <h4 className="font-semibold text-gray-700 mb-2 text-sm">📄 Content Preview</h4>
+              <div className="text-sm text-gray-600 max-h-32 overflow-y-auto break-words bg-white p-2 rounded border">
+                <pre className="whitespace-pre-wrap font-sans text-xs">
+                  {extractedData.content.length > 300 
+                    ? extractedData.content.substring(0, 300) + '...' 
+                    : extractedData.content}
+                </pre>
+              </div>
+              {extractedData.content.length > 300 && (
+                <p className="text-xs text-gray-500 mt-1">Content truncated for display</p>
+              )}
             </div>
           </div>
         </div>
@@ -77,12 +166,12 @@ function App() {
         <div className="text-center text-gray-500 py-12">
           <div className="mb-4">
             <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
             </svg>
           </div>
-          <p className="text-sm font-medium">No Gmail data extracted yet</p>
+          <p className="text-sm font-medium">Ready to analyze emails</p>
           <p className="text-xs mt-2 text-gray-400">
-            Open an email in Gmail and click "Extract Gmail" to get started
+            Open an email in Gmail and click "Analyze for Scam" to check for threats
           </p>
         </div>
       )}
@@ -92,6 +181,8 @@ function App() {
           Make sure you're on Gmail with an email open
         </p>
       </div>
+
+
     </div>
   );
 }
