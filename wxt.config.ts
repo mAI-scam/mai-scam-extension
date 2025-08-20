@@ -11,10 +11,13 @@ export default defineConfig({
   manifest: {
     permissions: [
       'activeTab',
-      'tabs'
+      'tabs',
+      'scripting'
     ],
     host_permissions: [
-      '*://mail.google.com/*'
+      '*://mail.google.com/*',
+      'http://*/*',
+      'https://*/*'
     ],
     content_security_policy: {
       extension_pages: "script-src 'self'; object-src 'self'"

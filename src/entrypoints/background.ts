@@ -37,6 +37,28 @@ export default defineBackground(() => {
       });
       
       return true; // Indicates we will send a response asynchronously
+    } else if (message.type === 'CAPTURE_SCREENSHOT') {
+      // Handle screenshot capture request
+      console.log('Screenshot capture requested');
+      
+      browser.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
+        if (tabs[0]?.id) {
+          browser.tabs.captureVisibleTab(tabs[0].windowId, { format: 'png' })
+            .then((screenshot) => {
+              console.log('Screenshot captured successfully');
+              sendResponse({ screenshot: screenshot });
+            })
+            .catch((error) => {
+              console.error('Error capturing screenshot:', error);
+              sendResponse({ screenshot: null, error: error.message });
+            });
+        } else {
+          console.error('No active tab found for screenshot');
+          sendResponse({ screenshot: null, error: 'No active tab' });
+        }
+      });
+      
+      return true; // Indicates we will send a response asynchronously
     }
   });
 

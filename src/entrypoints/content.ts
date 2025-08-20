@@ -1,16 +1,30 @@
 import { analyzeEmail, AnalysisRequest, AnalysisResponse } from '../utils/mockApi';
 
 export default defineContentScript({
-  matches: ['*://mail.google.com/*'],
+  matches: ['<all_urls>'],
   cssInjectionMode: 'ui',
   main() {
-    console.log('Gmail scraper content script loaded');
+    console.log('Content script loaded on:', window.location.hostname);
     
     // Interface for Gmail data
     interface GmailData {
       subject: string;
       from: string;
       content: string;
+    }
+
+    // Interface for Website data
+    interface WebsiteData {
+      url: string;
+      title: string;
+      screenshot: string;
+      metadata: {
+        description?: string;
+        keywords?: string;
+        author?: string;
+        domain: string;
+        favicon?: string;
+      };
     }
 
     // Function to extract Gmail data
@@ -293,6 +307,88 @@ export default defineContentScript({
         return result;
       } catch (error) {
         console.error('Error extracting Gmail data:', error);
+        return null;
+      }
+    }
+
+    // Function to extract website data including screenshot
+    async function extractWebsiteData(): Promise<WebsiteData | null> {
+      try {
+        console.log('Starting website data extraction...');
+        
+        // Get basic page information
+        const url = window.location.href;
+        const title = document.title || 'No title';
+        const domain = window.location.hostname;
+        
+        // Extract metadata
+        const metadata: WebsiteData['metadata'] = {
+          domain: domain,
+        };
+        
+        // Get meta description
+        const descriptionMeta = document.querySelector('meta[name="description"]') as HTMLMetaElement;
+        if (descriptionMeta?.content) {
+          metadata.description = descriptionMeta.content;
+        }
+        
+        // Get meta keywords
+        const keywordsMeta = document.querySelector('meta[name="keywords"]') as HTMLMetaElement;
+        if (keywordsMeta?.content) {
+          metadata.keywords = keywordsMeta.content;
+        }
+        
+        // Get meta author
+        const authorMeta = document.querySelector('meta[name="author"]') as HTMLMetaElement;
+        if (authorMeta?.content) {
+          metadata.author = authorMeta.content;
+        }
+        
+        // Get favicon
+        const faviconLink = document.querySelector('link[rel*="icon"]') as HTMLLinkElement;
+        if (faviconLink?.href) {
+          metadata.favicon = faviconLink.href;
+        }
+        
+        // Take screenshot using chrome.tabs.captureVisibleTab
+        let screenshot = '';
+        try {
+          // Request screenshot from background script
+          screenshot = await new Promise((resolve, reject) => {
+            browser.runtime.sendMessage({ type: 'CAPTURE_SCREENSHOT' }, (response) => {
+              if (browser.runtime.lastError) {
+                reject(browser.runtime.lastError);
+              } else {
+                resolve(response?.screenshot || '');
+              }
+            });
+          });
+        } catch (error) {
+          console.warn('Could not capture screenshot:', error);
+          screenshot = '';
+        }
+        
+        const result: WebsiteData = {
+          url,
+          title,
+          screenshot,
+          metadata
+        };
+        
+        console.log('=== Website Extraction Complete ===');
+        console.log('Final result:', {
+          ...result,
+          screenshot: screenshot ? `[Screenshot captured: ${screenshot.length} chars]` : '[No screenshot]'
+        });
+        console.log('URL:', url);
+        console.log('Title:', title);
+        console.log('Domain:', domain);
+        console.log('Metadata:', metadata);
+        console.log('================================');
+        
+        return result;
+      } catch (error) {
+        console.error('Error extracting website data:', error);
         return null;
       }
     }
@@ -654,9 +750,19 @@ export default defineContentScript({
       } else if (message.type === 'ANALYZE_EMAIL') {
         analyzeCurrentEmail(message.targetLanguage || 'zh');
         sendResponse({ success: true });
+      } else if (message.type === 'GET_WEBSITE_DATA') {
+        console.log('Website data extraction requested');
+        extractWebsiteData().then((websiteData) => {
+          console.log('Website data extraction result:', websiteData);
+          sendResponse(websiteData);
+        }).catch((error) => {
+          console.error('Error in website data extraction:', error);
+          sendResponse(null);
+        });
+        return true; // Indicates we will send a response asynchronously
       }
     });
 
-    console.log('Gmail content script initialized');
+    console.log('Content script initialized for:', window.location.hostname);
   },
 });
