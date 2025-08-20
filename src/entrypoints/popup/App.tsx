@@ -4,6 +4,7 @@ interface GmailData {
   subject: string;
   from: string;
   content: string;
+  replyTo: string;
 }
 
 interface WebsiteData {
@@ -377,6 +378,11 @@ function App() {
             <div className="bg-gray-50 p-3 rounded-lg">
               <h4 className="font-semibold text-gray-700 mb-2 text-sm">👤 From</h4>
               <p className="text-sm text-gray-600 break-words">{extractedData.from}</p>
+            </div>
+
+            <div className="bg-gray-50 p-3 rounded-lg">
+              <h4 className="font-semibold text-gray-700 mb-2 text-sm">📧 Reply-To</h4>
+              <p className="text-sm text-gray-600 break-words">{extractedData.replyTo}</p>
             </div>
 
             <div className="bg-gray-50 p-3 rounded-lg">

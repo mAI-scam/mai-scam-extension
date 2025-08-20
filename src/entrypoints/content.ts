@@ -22,6 +22,7 @@ export default defineContentScript({
       subject: string;
       from: string;
       content: string;
+      replyTo: string;
     }
 
     // Interface for Website data
@@ -48,7 +49,7 @@ export default defineContentScript({
     }
 
     // Function to extract Gmail data
-    function extractGmailData(): GmailData | null {
+    async function extractGmailData(): Promise<GmailData | null> {
       try {
         console.log('Starting Gmail data extraction...');
         console.log('Current URL:', window.location.href);
@@ -189,6 +190,20 @@ export default defineContentScript({
           }
         }
 
+        // Also try to expand any collapsed email headers that might contain reply-to
+        console.log('Attempting to expand email headers for reply-to...');
+        const headerExpandButtons = document.querySelectorAll('[aria-label*="Show details"], [aria-label*="details"], [aria-label*="header"], .aW3, [class*="expand"], [class*="toggle"]');
+        for (const button of headerExpandButtons) {
+          try {
+            (button as HTMLElement).click();
+            console.log('Clicked header expand button:', button);
+            // Wait a bit for content to load
+            await new Promise(resolve => setTimeout(resolve, 100));
+          } catch (e) {
+            console.log('Could not click header expand button:', e);
+          }
+        }
+
         // Additional spam folder specific extraction
         if (!foundSender || from === 'No sender found') {
           console.log('Attempting spam-specific sender extraction...');
@@ -311,16 +326,235 @@ export default defineContentScript({
           }
         }
 
+        // Extract reply-to information
+        let replyTo = 'None';
+        console.log('Starting reply-to extraction...');
+        
+        // Debug: Log page structure to help understand where reply-to might be
+        console.log('Page URL:', window.location.href);
+        console.log('Page title:', document.title);
+        
+        // Look for any visible text containing "reply-to" for debugging
+        const pageText = document.body.textContent || '';
+        if (pageText.toLowerCase().includes('reply-to')) {
+          console.log('Found "reply-to" text in page content');
+          const replyToIndex = pageText.toLowerCase().indexOf('reply-to');
+          const context = pageText.substring(Math.max(0, replyToIndex - 50), replyToIndex + 100);
+          console.log('Reply-to context:', context);
+        } else {
+          console.log('No "reply-to" text found in page content');
+        }
+        const replyToSelectors = [
+          // Look for reply-to headers in email content
+          '.adn .afn', // Raw headers in expanded view
+          '.afn .g2', // Raw sender info
+          // Look for reply-to patterns in the content
+          '[data-legacy-message-id] .a3s',
+          '.ii.gt .a3s.aiL',
+          // Alternative selectors for reply-to
+          '.message-headers',
+          '.email-headers',
+          // Gmail specific selectors
+          '.adn .afn .g2',
+          '.afn .g2[email]',
+          // Raw email headers
+          '.adn',
+          '.afn',
+          // Additional Gmail header selectors
+          '.adn .afn div',
+          '.afn div',
+          '.adn div',
+          // Try to find any element containing reply-to text
+          '*[class*="header"]',
+          '*[class*="meta"]'
+        ];
+
+        // Try to find reply-to information in headers first
+        for (const selector of replyToSelectors) {
+          const element = document.querySelector(selector);
+          if (element && element.textContent) {
+            const text = element.textContent;
+            console.log(`Searching for reply-to in selector ${selector}:`, text.substring(0, 200) + '...');
+            
+            // Look for reply-to patterns in headers - handle both colon and tab separators
+            const replyToPatterns = [
+              /reply-to:\s*([^\r\n]+)/i,           // reply-to: value
+              /reply-to\t+([^\r\n]+)/i,            // reply-to\tvalue (tab separator)
+              /reply-to\s+([^\r\n]+)/i,            // reply-to value (space separator)
+              /reply-to\s*=\s*([^\r\n]+)/i        // reply-to = value
+            ];
+            
+            for (const pattern of replyToPatterns) {
+              const replyToMatch = text.match(pattern);
+              if (replyToMatch && replyToMatch[1]) {
+                let replyToValue = replyToMatch[1].trim();
+                console.log(`Raw reply-to match: "${replyToValue}"`);
+                
+                // Handle quoted format: "Name" <email@domain.com>
+                if (replyToValue.includes('<') && replyToValue.includes('>')) {
+                  const emailMatch = replyToValue.match(/<([^>]+)>/);
+                  if (emailMatch && emailMatch[1]) {
+                    replyToValue = emailMatch[1].trim();
+                    console.log(`Extracted email from quoted format: "${replyToValue}"`);
+                  }
+                }
+                
+                // Handle just the email part if it's mixed with other text
+                if (replyToValue.includes('@')) {
+                  const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+                  const emailMatch = replyToValue.match(emailPattern);
+                  if (emailMatch) {
+                    replyToValue = emailMatch[0];
+                    console.log(`Extracted clean email: "${replyToValue}"`);
+                  }
+                }
+                
+                if (replyToValue.includes('@') && replyToValue.length > 5) {
+                  replyTo = replyToValue;
+                  console.log(`Reply-to found in headers with selector: ${selector} -> "${replyTo}"`);
+                  break;
+                }
+              }
+            }
+            
+            if (replyTo !== 'None') break;
+          }
+        }
+        
+        // If still no reply-to found, try a more aggressive search across the entire page
+        if (replyTo === 'None') {
+          console.log('Performing aggressive reply-to search across entire page...');
+          
+          // Look for any text containing "reply-to" anywhere on the page
+          const allElements = document.querySelectorAll('*');
+          for (const element of allElements) {
+            if (element.textContent && element.textContent.toLowerCase().includes('reply-to')) {
+              const text = element.textContent;
+              console.log(`Found element with reply-to text:`, element.tagName, element.className, text.substring(0, 100) + '...');
+              
+              // Try to extract reply-to value from this text
+              const replyToPatterns = [
+                /reply-to:\s*([^\r\n]+)/i,
+                /reply-to\t+([^\r\n]+)/i,
+                /reply-to\s+([^\r\n]+)/i,
+                /reply-to\s*=\s*([^\r\n]+)/i
+              ];
+              
+              for (const pattern of replyToPatterns) {
+                const replyToMatch = text.match(pattern);
+                if (replyToMatch && replyToMatch[1]) {
+                  let replyToValue = replyToMatch[1].trim();
+                  console.log(`Raw reply-to match from aggressive search: "${replyToValue}"`);
+                  
+                  // Handle quoted format: "Name" <email@domain.com>
+                  if (replyToValue.includes('<') && replyToValue.includes('>')) {
+                    const emailMatch = replyToValue.match(/<([^>]+)>/);
+                    if (emailMatch && emailMatch[1]) {
+                      replyToValue = emailMatch[1].trim();
+                      console.log(`Extracted email from quoted format: "${replyToValue}"`);
+                    }
+                  }
+                  
+                  // Handle just the email part if it's mixed with other text
+                  if (replyToValue.includes('@')) {
+                    const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+                    const emailMatch = replyToValue.match(emailPattern);
+                    if (emailMatch) {
+                      replyToValue = emailMatch[0];
+                      console.log(`Extracted clean email: "${replyToValue}"`);
+                    }
+                  }
+                  
+                  if (replyToValue.includes('@') && replyToValue.length > 5) {
+                    replyTo = replyToValue;
+                    console.log(`Reply-to found with aggressive search -> "${replyTo}"`);
+                    break;
+                  }
+                }
+              }
+              
+              if (replyTo !== 'None') break;
+            }
+          }
+        }
+
+        // If no reply-to found in headers, try to look for it in the email content
+        if (replyTo === 'None') {
+          // Look for common reply-to patterns in the email body
+          const replyToPatterns = [
+            /reply\s*to:\s*([^\r\n]+)/i,
+            /reply\s*to\s*email:\s*([^\r\n]+)/i,
+            /send\s*reply\s*to:\s*([^\r\n]+)/i,
+            /contact\s*us\s*at:\s*([^\r\n]+)/i,
+            /email\s*us\s*at:\s*([^\r\n]+)/i,
+            /reply\s*to\s*this\s*email\s*at:\s*([^\r\n]+)/i,
+            /please\s*reply\s*to:\s*([^\r\n]+)/i,
+            /direct\s*replies\s*to:\s*([^\r\n]+)/i,
+            /send\s*response\s*to:\s*([^\r\n]+)/i,
+            /contact\s*email:\s*([^\r\n]+)/i
+          ];
+
+          for (const pattern of replyToPatterns) {
+            const match = content.match(pattern);
+            if (match && match[1]) {
+              const potentialReplyTo = match[1].trim();
+              // Clean up the email (remove extra punctuation, etc.)
+              const cleanEmail = potentialReplyTo.replace(/[^\w@.-]/g, '');
+              if (cleanEmail.includes('@') && cleanEmail.length > 5 && 
+                  cleanEmail.includes('.') && !cleanEmail.includes('..')) {
+                replyTo = cleanEmail;
+                console.log(`Reply-to found in content with pattern: ${pattern} -> "${replyTo}"`);
+                break;
+              }
+            }
+          }
+        }
+
+        // Additional check: Look for any email addresses that might be reply-to candidates
+        if (replyTo === 'None') {
+          // Extract all email addresses from content and find the most likely reply-to
+          const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+          const allEmails = content.match(emailPattern);
+          
+          if (allEmails && allEmails.length > 0) {
+            // Filter out the sender email and common system emails
+            const filteredEmails = allEmails.filter(email => {
+              const lowerEmail = email.toLowerCase();
+              return email !== from && 
+                     !lowerEmail.includes('no-reply@') &&
+                     !lowerEmail.includes('noreply@') &&
+                     !lowerEmail.includes('donotreply@') &&
+                     !lowerEmail.includes('@google.com') &&
+                     !lowerEmail.includes('@googlemail.com') &&
+                     !lowerEmail.includes('@gmail.com');
+            });
+            
+            if (filteredEmails.length > 0) {
+              // Take the first valid email as potential reply-to
+              replyTo = filteredEmails[0];
+              console.log(`Reply-to found from filtered email list: "${replyTo}"`);
+            }
+          }
+        }
+
         const result = {
           subject,
           from,
-          content: content // Return full content without length limitation
+          content: content, // Return full content without length limitation
+          replyTo
         };
+
+        console.log('Reply-to extraction summary:', {
+          found: replyTo !== 'None',
+          value: replyTo,
+          method: replyTo !== 'None' ? 'extracted' : 'not found'
+        });
 
         console.log('=== Gmail Extraction Complete ===');
         console.log('Final result:', result);
         console.log('Subject found:', subject !== 'No subject found');
         console.log('Sender found:', from !== 'No sender found');
+        console.log('Reply-to found:', replyTo !== 'None', replyTo !== 'None' ? `(${replyTo})` : '');
         console.log('Content found:', content !== 'No content found');
         console.log('Is spam folder:', window.location.href.includes('/spam'));
         console.log('================================');
@@ -1284,7 +1518,7 @@ export default defineContentScript({
 
     // Function to analyze email and show modal
     async function analyzeCurrentEmail(targetLanguage: string = 'zh') {
-      const gmailData = extractGmailData();
+      const gmailData = await extractGmailData();
       if (!gmailData) {
         console.error('No Gmail data available for analysis');
         return;
@@ -1329,9 +1563,14 @@ export default defineContentScript({
     // Listen for messages from popup requesting data
     browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.type === 'GET_GMAIL_DATA') {
-        const gmailData = extractGmailData();
-        console.log('Manual Gmail data extraction requested:', gmailData);
-        sendResponse(gmailData);
+        extractGmailData().then((gmailData) => {
+          console.log('Manual Gmail data extraction requested:', gmailData);
+          sendResponse(gmailData);
+        }).catch((error) => {
+          console.error('Error extracting Gmail data:', error);
+          sendResponse(null);
+        });
+        return true; // Indicates we will send a response asynchronously
       } else if (message.type === 'ANALYZE_EMAIL') {
         analyzeCurrentEmail(message.targetLanguage || 'zh');
         sendResponse({ success: true });
