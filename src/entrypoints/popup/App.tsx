@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface GmailData {
   subject: string;
@@ -19,6 +19,14 @@ interface WebsiteData {
   };
 }
 
+interface FacebookPostData {
+  username: string;
+  caption: string;
+  image?: string;
+  postUrl: string;
+  timestamp?: string;
+}
+
 // Language options with their display names
 const LANGUAGE_OPTIONS = [
   { code: 'en', name: 'English' },
@@ -36,15 +44,82 @@ const LANGUAGE_OPTIONS = [
   { code: 'ta', name: 'தமிழ் (Tamil)' }
 ];
 
-type ScanMode = 'email' | 'website';
+type ScanMode = 'email' | 'website' | 'social';
 
 function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [extractedData, setExtractedData] = useState<GmailData | null>(null);
   const [websiteData, setWebsiteData] = useState<WebsiteData | null>(null);
+  const [facebookData, setFacebookData] = useState<FacebookPostData | null>(null);
   const [selectedLanguage, setSelectedLanguage] = useState<string>('zh');
   const [scanMode, setScanMode] = useState<ScanMode>('email');
+  const [facebookExtractionInProgress, setFacebookExtractionInProgress] = useState(false);
+
+  // Check for ongoing Facebook extraction when popup opens
+  useEffect(() => {
+    const checkFacebookExtractionStatus = async () => {
+      try {
+        const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+        if (tabs[0]?.id && tabs[0].url?.includes('facebook.com')) {
+          // Check if there's an ongoing extraction
+          const response = await browser.tabs.sendMessage(tabs[0].id, { type: 'CHECK_FACEBOOK_EXTRACTION_STATUS' });
+          if (response?.inProgress) {
+            setFacebookExtractionInProgress(true);
+            setLoading(true);
+            setScanMode('social');
+            
+            // Listen for extraction completion
+            pollForFacebookData(tabs[0].id);
+          } else if (response?.data) {
+            // Extraction completed, show the data
+            setFacebookData(response.data);
+            setScanMode('social');
+          }
+        }
+      } catch (error) {
+        console.error('Error checking Facebook extraction status:', error);
+      }
+    };
+
+    checkFacebookExtractionStatus();
+  }, []);
+
+  // Function to poll for Facebook extraction completion
+  const pollForFacebookData = async (tabId: number) => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await browser.tabs.sendMessage(tabId, { type: 'CHECK_FACEBOOK_EXTRACTION_STATUS' });
+        if (!response?.inProgress) {
+          clearInterval(pollInterval);
+          setLoading(false);
+          setFacebookExtractionInProgress(false);
+          
+          if (response?.data) {
+            setFacebookData(response.data);
+          } else {
+            setError('Facebook extraction was cancelled or failed.');
+          }
+        }
+      } catch (error) {
+        console.error('Error polling for Facebook data:', error);
+        clearInterval(pollInterval);
+        setLoading(false);
+        setFacebookExtractionInProgress(false);
+        setError('Lost connection to Facebook extraction.');
+      }
+    }, 1000); // Poll every second
+
+    // Stop polling after 60 seconds to prevent infinite polling
+    setTimeout(() => {
+      clearInterval(pollInterval);
+      if (facebookExtractionInProgress) {
+        setLoading(false);
+        setFacebookExtractionInProgress(false);
+        setError('Facebook extraction timed out.');
+      }
+    }, 60000);
+  };
 
   // Function to analyze email for scam - extract data and trigger content script modal
   const analyzeEmailForScam = async () => {
@@ -112,6 +187,47 @@ function App() {
     }
   };
 
+  // Function to scan Facebook post
+  const scanFacebookPost = async () => {
+    // Check if extraction is already in progress
+    if (facebookExtractionInProgress) {
+      setError('Facebook extraction is already in progress. Please wait or cancel the current extraction.');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setFacebookData(null);
+    setFacebookExtractionInProgress(true);
+    
+    try {
+      const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+      if (tabs[0]?.id) {
+        // Check if we're on Facebook
+        if (!tabs[0].url?.includes('facebook.com')) {
+          setError('Please navigate to Facebook to use this feature.');
+          return;
+        }
+
+        // Start Facebook post extraction (this will show the overlay and wait for user selection)
+        // The extraction will continue even if the popup closes
+        await browser.tabs.sendMessage(tabs[0].id, { type: 'START_FACEBOOK_EXTRACTION' });
+        console.log('Facebook extraction started - popup can now be closed');
+        
+        // Start polling for completion
+        pollForFacebookData(tabs[0].id);
+        
+      } else {
+        setError('No active tab found.');
+      }
+    } catch (err) {
+      console.error('Error starting Facebook extraction:', err);
+      setError('Error starting Facebook extraction. Please try again.');
+      setFacebookExtractionInProgress(false);
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="w-96 min-h-96 p-4 bg-white">
       <div className="mb-4">
@@ -145,6 +261,17 @@ function App() {
               >
                 🌐 Website
               </button>
+              <button
+                onClick={() => setScanMode('social')}
+                disabled={loading}
+                className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                  scanMode === 'social'
+                    ? 'bg-white text-red-600 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                } disabled:cursor-not-allowed`}
+              >
+                📱 Social
+              </button>
             </div>
           </div>
 
@@ -172,21 +299,31 @@ function App() {
           {/* Action Buttons */}
           <div className="space-y-2">
             <button
-              onClick={scanMode === 'email' ? analyzeEmailForScam : scanCurrentWebsite}
+              onClick={
+                scanMode === 'email' ? analyzeEmailForScam : 
+                scanMode === 'website' ? scanCurrentWebsite : 
+                scanFacebookPost
+              }
               disabled={loading}
               className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed transition-colors font-medium"
             >
               {loading 
-                ? (scanMode === 'email' ? 'Analyzing Email...' : 'Scanning Website...') 
-                : (scanMode === 'email' ? '🛡️ Analyze Email' : '🔍 Scan Website')
+                ? (scanMode === 'email' ? 'Analyzing Email...' : 
+                   scanMode === 'website' ? 'Scanning Website...' : 
+                   facebookExtractionInProgress ? 'Waiting for Post Selection...' : 'Starting Facebook Extraction...') 
+                : (scanMode === 'email' ? '🛡️ Analyze Email' : 
+                   scanMode === 'website' ? '🔍 Scan Website' : 
+                   '📱 Scan Facebook Post')
               }
             </button>
             
-            {(extractedData || websiteData) && (
+            {(extractedData || websiteData || facebookData) && (
               <button
                 onClick={() => {
                   setExtractedData(null);
                   setWebsiteData(null);
+                  setFacebookData(null);
+                  setFacebookExtractionInProgress(false);
                   setError(null);
                 }}
                 className="w-full px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors font-medium text-sm"
@@ -201,6 +338,18 @@ function App() {
       {error && (
         <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg">
           <p className="text-sm">{error}</p>
+        </div>
+      )}
+
+      {facebookExtractionInProgress && !facebookData && (
+        <div className="mb-4 p-3 bg-blue-100 border border-blue-400 text-blue-700 rounded-lg">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
+            <span className="font-semibold">Facebook Extraction in Progress</span>
+          </div>
+          <p className="text-sm">
+            Please go to the Facebook tab and select a post. You can close this popup - we'll remember your selection!
+          </p>
         </div>
       )}
 
@@ -303,7 +452,65 @@ function App() {
         </div>
       ) : null}
 
-      {!loading && !error && !extractedData && !websiteData && (
+      {facebookData ? (
+        <div className="space-y-4">
+          <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-purple-600">✅</span>
+              <h3 className="font-semibold text-purple-800">Facebook Post Data Extracted</h3>
+            </div>
+            <p className="text-xs text-purple-600">
+              Facebook post information successfully captured
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <div className="bg-gray-50 p-3 rounded-lg">
+              <h4 className="font-semibold text-gray-700 mb-2 text-sm">👤 Username</h4>
+              <p className="text-sm text-gray-600 break-words">{facebookData.username}</p>
+            </div>
+
+            <div className="bg-gray-50 p-3 rounded-lg">
+              <h4 className="font-semibold text-gray-700 mb-2 text-sm">📝 Caption</h4>
+              <div className="text-sm text-gray-600 max-h-32 overflow-y-auto break-words bg-white p-2 rounded border">
+                <pre className="whitespace-pre-wrap font-sans text-xs">
+                  {facebookData.caption.length > 300 
+                    ? facebookData.caption.substring(0, 300) + '...' 
+                    : facebookData.caption}
+                </pre>
+              </div>
+              {facebookData.caption.length > 300 && (
+                <p className="text-xs text-gray-500 mt-1">Caption truncated for display</p>
+              )}
+            </div>
+
+            <div className="bg-gray-50 p-3 rounded-lg">
+              <h4 className="font-semibold text-gray-700 mb-2 text-sm">🔗 Post URL</h4>
+              <p className="text-sm text-gray-600 break-all">{facebookData.postUrl}</p>
+            </div>
+
+            {facebookData.timestamp && (
+              <div className="bg-gray-50 p-3 rounded-lg">
+                <h4 className="font-semibold text-gray-700 mb-2 text-sm">⏰ Timestamp</h4>
+                <p className="text-sm text-gray-600">{facebookData.timestamp}</p>
+              </div>
+            )}
+
+            {facebookData.image && (
+              <div className="bg-gray-50 p-3 rounded-lg">
+                <h4 className="font-semibold text-gray-700 mb-2 text-sm">🖼️ Post Image</h4>
+                <img 
+                  src={facebookData.image} 
+                  alt="Facebook post image" 
+                  className="w-full rounded border max-h-64 object-cover"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {!loading && !error && !extractedData && !websiteData && !facebookData && (
         <div className="text-center text-gray-500 py-12">
           <div className="mb-4">
             <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -311,12 +518,16 @@ function App() {
             </svg>
           </div>
           <p className="text-sm font-medium">
-            {scanMode === 'email' ? 'Ready to analyze emails' : 'Ready to scan websites'}
+            {scanMode === 'email' ? 'Ready to analyze emails' : 
+             scanMode === 'website' ? 'Ready to scan websites' : 
+             'Ready to scan Facebook posts'}
           </p>
           <p className="text-xs mt-2 text-gray-400">
             {scanMode === 'email' 
               ? 'Open an email in Gmail and click "Analyze Email" to check for threats'
-              : 'Navigate to any website and click "Scan Website" to extract information'
+              : scanMode === 'website'
+              ? 'Navigate to any website and click "Scan Website" to extract information'
+              : 'Navigate to Facebook and click "Scan Facebook Post" to extract post data'
             }
           </p>
         </div>
@@ -326,7 +537,9 @@ function App() {
         <p className="text-xs text-gray-400">
           {scanMode === 'email' 
             ? 'Make sure you\'re on Gmail with an email open'
-            : 'Works on any website - just click scan to extract information'
+            : scanMode === 'website'
+            ? 'Works on any website - just click scan to extract information'
+            : 'Make sure you\'re on Facebook viewing posts'
           }
         </p>
       </div>

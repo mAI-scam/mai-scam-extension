@@ -6,6 +6,17 @@ export default defineContentScript({
   main() {
     console.log('Content script loaded on:', window.location.hostname);
     
+    // State management for Facebook extraction
+    let facebookExtractionState: {
+      inProgress: boolean;
+      data: FacebookPostData | null;
+      startTime: number | null;
+    } = {
+      inProgress: false,
+      data: null,
+      startTime: null
+    };
+    
     // Interface for Gmail data
     interface GmailData {
       subject: string;
@@ -25,6 +36,15 @@ export default defineContentScript({
         domain: string;
         favicon?: string;
       };
+    }
+
+    // Interface for Facebook post data
+    interface FacebookPostData {
+      username: string;
+      caption: string;
+      image?: string;
+      postUrl: string;
+      timestamp?: string;
     }
 
     // Function to extract Gmail data
@@ -389,6 +409,571 @@ export default defineContentScript({
         return result;
       } catch (error) {
         console.error('Error extracting website data:', error);
+        return null;
+      }
+    }
+
+    // Function to start Facebook post data extraction with state management
+    async function startFacebookPostExtraction(): Promise<void> {
+      try {
+        console.log('Starting Facebook post data extraction...');
+        
+        // Check if we're on Facebook
+        if (!window.location.hostname.includes('facebook.com')) {
+          console.error('Not on Facebook domain');
+          return;
+        }
+
+        // Set extraction state
+        facebookExtractionState.inProgress = true;
+        facebookExtractionState.data = null;
+        facebookExtractionState.startTime = Date.now();
+
+        // Create overlay for post selection
+        const overlay = createPostSelectionOverlay();
+        document.body.appendChild(overlay);
+
+        // Set up the extraction process
+        setupFacebookPostSelection(overlay);
+        
+      } catch (error) {
+        console.error('Error starting Facebook post data extraction:', error);
+        facebookExtractionState.inProgress = false;
+      }
+    }
+
+    // Function to set up Facebook post selection
+    function setupFacebookPostSelection(overlay: HTMLDivElement): void {
+      // Find all Facebook posts on the page
+      const posts = findFacebookPosts();
+      console.log(`Found ${posts.length} Facebook posts`);
+
+      if (posts.length === 0) {
+        overlay.remove();
+        // Remove instructions if they exist
+        const instructions = document.querySelector('[style*="transform: translate(-50%, -50%)"]');
+        if (instructions) instructions.remove();
+        facebookExtractionState.inProgress = false;
+        return;
+      }
+
+      // Add click handlers to posts for selection
+      console.log('Adding selectors to', posts.length, 'posts');
+      posts.forEach((post, index) => {
+        const postElement = post.element;
+        console.log(`Adding selector to post ${index + 1}:`, postElement);
+            
+            // Create selection indicator
+            const indicator = document.createElement('div');
+            indicator.className = 'maiscam-post-selector';
+            indicator.style.cssText = `
+              position: absolute;
+              top: 0;
+              left: 0;
+              right: 0;
+              bottom: 0;
+              background: rgba(59, 130, 246, 0.1);
+              border: 3px solid #3b82f6;
+              border-radius: 8px;
+              cursor: pointer;
+              z-index: 10000;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              pointer-events: auto;
+            `;
+            
+            const badge = document.createElement('div');
+            badge.style.cssText = `
+              background: #3b82f6;
+              color: white;
+              padding: 8px 16px;
+              border-radius: 20px;
+              font-weight: bold;
+              font-size: 14px;
+              box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+            `;
+            badge.textContent = `📱 Select Post ${index + 1}`;
+            indicator.appendChild(badge);
+
+            // Position indicator relative to post
+            postElement.style.position = 'relative';
+            postElement.appendChild(indicator);
+
+        // Add click handler
+        indicator.onclick = (e) => {
+          console.log('Post selector clicked!', index + 1);
+          e.preventDefault();
+          e.stopPropagation();
+          
+          // Remove all indicators and overlays
+          document.querySelectorAll('.maiscam-post-selector').forEach(el => el.remove());
+          overlay.remove();
+          // Remove instructions
+          const instructions = document.querySelector('[style*="transform: translate(-50%, -50%)"]');
+          if (instructions) instructions.remove();
+          // Remove cancel button if it exists
+          const cancelBtn = document.querySelector('[style*="position: fixed"][style*="top: 20px"][style*="right: 20px"]');
+          if (cancelBtn) cancelBtn.remove();
+          
+          // Extract data from selected post and update state
+          const extractedData = extractPostData(post);
+          facebookExtractionState.data = extractedData;
+          facebookExtractionState.inProgress = false;
+          
+          console.log('Facebook extraction completed:', extractedData);
+          
+          // Show success notification to user
+          showPostSelectionSuccess();
+        };
+
+        // Add hover effects
+        indicator.onmouseenter = () => {
+          indicator.style.background = 'rgba(59, 130, 246, 0.2)';
+          badge.style.background = '#2563eb';
+        };
+        indicator.onmouseleave = () => {
+          indicator.style.background = 'rgba(59, 130, 246, 0.1)';
+          badge.style.background = '#3b82f6';
+        };
+      });
+
+      // Add cancel button to overlay
+      const cancelButton = document.createElement('button');
+      cancelButton.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: #ef4444;
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 8px;
+        font-weight: bold;
+        cursor: pointer;
+        z-index: 10002;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+        pointer-events: auto;
+      `;
+      cancelButton.textContent = '✕ Cancel';
+      cancelButton.onclick = () => {
+        document.querySelectorAll('.maiscam-post-selector').forEach(el => el.remove());
+        overlay.remove();
+        // Remove instructions
+        const instructions = document.querySelector('[style*="transform: translate(-50%, -50%)"]');
+        if (instructions) instructions.remove();
+        cancelButton.remove();
+        
+        // Update state
+        facebookExtractionState.inProgress = false;
+        facebookExtractionState.data = null;
+      };
+      document.body.appendChild(cancelButton);
+
+      // Auto-remove after 60 seconds
+      setTimeout(() => {
+        if (document.body.contains(overlay)) {
+          document.querySelectorAll('.maiscam-post-selector').forEach(el => el.remove());
+          overlay.remove();
+          // Remove instructions
+          const instructions = document.querySelector('[style*="transform: translate(-50%, -50%)"]');
+          if (instructions) instructions.remove();
+          if (document.body.contains(cancelButton)) {
+            cancelButton.remove();
+          }
+          
+          // Update state - timed out
+          facebookExtractionState.inProgress = false;
+          facebookExtractionState.data = null;
+        }
+      }, 60000);
+    }
+
+    // Function to show success notification after post selection
+    function showPostSelectionSuccess(): void {
+      // Remove any existing success notifications
+      const existingNotification = document.getElementById('maiscam-success-notification');
+      if (existingNotification) {
+        existingNotification.remove();
+      }
+
+      // Create success notification
+      const notification = document.createElement('div');
+      notification.id = 'maiscam-success-notification';
+      notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #10b981;
+        color: white;
+        padding: 16px 24px;
+        border-radius: 12px;
+        box-shadow: 0 10px 25px -5px rgba(16, 185, 129, 0.3);
+        z-index: 10003;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        text-align: center;
+        max-width: 400px;
+        animation: slideDown 0.5s ease-out;
+      `;
+      
+      notification.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+          <span style="font-size: 20px;">✅</span>
+          <span style="font-weight: bold; font-size: 16px;">Post Selected Successfully!</span>
+        </div>
+        <p style="margin: 0; font-size: 14px; opacity: 0.9;">
+          Facebook post data has been extracted.<br/>
+          <strong>Please reopen the extension popup to view the results!</strong>
+        </p>
+      `;
+
+      // Add CSS animation
+      const style = document.createElement('style');
+      style.textContent = `
+        @keyframes slideDown {
+          from { transform: translateX(-50%) translateY(-100%); opacity: 0; }
+          to { transform: translateX(-50%) translateY(0); opacity: 1; }
+        }
+      `;
+      document.head.appendChild(style);
+
+      document.body.appendChild(notification);
+
+      // Auto-remove after 10 seconds
+      setTimeout(() => {
+        if (document.body.contains(notification)) {
+          notification.style.animation = 'slideDown 0.5s ease-out reverse';
+          setTimeout(() => notification.remove(), 500);
+        }
+      }, 10000);
+
+      // Also remove when clicked
+      notification.onclick = () => {
+        notification.style.animation = 'slideDown 0.5s ease-out reverse';
+        setTimeout(() => notification.remove(), 500);
+      };
+    }
+
+    // Function to create post selection overlay
+    function createPostSelectionOverlay(): HTMLDivElement {
+      const overlay = document.createElement('div');
+      overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.3);
+        z-index: 9998;
+        pointer-events: none;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      `;
+
+      const instructions = document.createElement('div');
+      instructions.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        padding: 24px;
+        border-radius: 12px;
+        text-align: center;
+        max-width: 400px;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+        pointer-events: none;
+        z-index: 10001;
+      `;
+      instructions.innerHTML = `
+        <h3 style="margin: 0 0 16px 0; color: #111827; font-size: 18px; font-weight: bold;">
+          📱 Select a Facebook Post
+        </h3>
+        <p style="margin: 0; color: #6b7280; font-size: 14px; line-height: 1.5;">
+          Click on any post with an image to extract its data.<br/>
+          Posts with videos will be skipped automatically.
+        </p>
+      `;
+      
+      document.body.appendChild(instructions);
+      return overlay;
+    }
+
+    // Function to find Facebook posts on the page
+    function findFacebookPosts(): Array<{element: HTMLElement, hasImage: boolean, hasVideo: boolean}> {
+      const posts: Array<{element: HTMLElement, hasImage: boolean, hasVideo: boolean}> = [];
+      
+      // Multiple selectors for different Facebook layouts and post types
+      const postSelectors = [
+        // Main feed posts
+        '[data-pagelet="FeedUnit_0"], [data-pagelet="FeedUnit_1"], [data-pagelet="FeedUnit_2"]',
+        '[data-pagelet*="FeedUnit"]',
+        // Individual posts
+        '[role="article"]',
+        '[data-ft*="top_level_post_id"]',
+        // Story/post containers
+        '.userContentWrapper',
+        '._5pcr',
+        // New Facebook layout
+        '[data-ad-preview="message"]',
+        '.x1yztbdb', // Common post container class
+        // Profile posts
+        '[data-testid="post_message"]',
+        // Group posts
+        '.du4w35lb',
+        // Alternative selectors
+        '.story_body_container',
+        '._427x'
+      ];
+
+      for (const selector of postSelectors) {
+        try {
+          const elements = document.querySelectorAll(selector);
+          elements.forEach((element) => {
+            // Check if this post has an image (skip videos)
+            const hasImage = element.querySelector('img[src*="scontent"], img[src*="fbcdn"], .scaledImageFitWidth, [data-testid="post-image"]');
+            const hasVideo = element.querySelector('video, [data-testid="post-video"], .videoContainer');
+            
+            if (hasImage && !hasVideo && !posts.find(p => p.element === element)) {
+              posts.push({
+                element: element as HTMLElement,
+                hasImage: true,
+                hasVideo: false
+              });
+            }
+          });
+        } catch (e) {
+          console.log(`Selector ${selector} failed:`, e);
+        }
+      }
+
+      // Filter out posts that are too small (likely ads or other content)
+      return posts.filter(post => {
+        const rect = post.element.getBoundingClientRect();
+        return rect.height > 100 && rect.width > 200;
+      });
+    }
+
+    // Function to extract data from a selected Facebook post
+    function extractPostData(post: {element: HTMLElement, hasImage: boolean, hasVideo: boolean}): FacebookPostData | null {
+      try {
+        const postElement = post.element;
+        console.log('Extracting data from selected post:', postElement);
+
+        // Extract username - the person who posted this
+        let username = 'Unknown User';
+        console.log('=== Starting username extraction ===');
+        console.log('Post element:', postElement);
+        console.log('Post element HTML:', postElement.outerHTML.substring(0, 500) + '...');
+        const usernameSelectors = [
+          // Modern Facebook selectors (most reliable)
+          '[data-testid="post-author-name"]',
+          '[data-testid="post-author-name"] span',
+          'h3 a[role="link"]',
+          'h3 span > span',
+          'strong a[role="link"]',
+          
+          // Profile link selectors
+          'a[data-hovercard-id]',
+          'a[data-hovercard-id] span',
+          '.profileLink',
+          '.profileLink span',
+          
+          // Author selectors
+          '.actor a',
+          '.actor a span',
+          '.author a',
+          '.author a span',
+          
+          // Header selectors
+          'h4 a',
+          'h3 strong',
+          'h2 a',
+          
+          // Alternative selectors
+          '[data-testid="story-subtitle"] a',
+          '.story-subtitle a',
+          '.post-header a',
+          '.post-header span',
+          
+          // Broader selectors for different layouts
+          'a[href*="/profile.php"]',
+          'a[href*="/profile.php"] span',
+          'a[href*="/permalink/"]',
+          'a[href*="/permalink/"] span',
+          
+          // Fallback selectors
+          '.x1yztbdb a[role="link"]',
+          '.x1yztbdb span[dir="auto"]',
+          '[role="article"] h3 a',
+          '[role="article"] h3 span'
+        ];
+
+        for (const selector of usernameSelectors) {
+          const element = postElement.querySelector(selector);
+          console.log(`Trying selector: ${selector} -> Found:`, element);
+          if (element && element.textContent?.trim()) {
+            const text = element.textContent.trim();
+            console.log(`Selector ${selector} text content: "${text}"`);
+            // Filter out very short or invalid usernames
+            if (text.length > 1 && text.length < 100 && 
+                !text.includes('•') && !text.includes('·') && 
+                !text.match(/^\d+$/) && !text.includes('@')) {
+              username = text;
+              console.log(`✅ Username found with selector: ${selector} -> "${username}"`);
+              break;
+            } else {
+              console.log(`❌ Username filtered out: "${text}" (length: ${text.length}, contains invalid chars)`);
+            }
+          } else {
+            console.log(`❌ Selector ${selector} found no element or empty text`);
+          }
+        }
+
+        // If still no username, try to find it in the post header area
+        if (username === 'Unknown User') {
+          console.log('Trying alternative username extraction methods...');
+          
+          // Look for any clickable profile links in the post header
+          const headerArea = postElement.querySelector('[role="article"], .userContentWrapper, ._5pcr, .x1yztbdb');
+          if (headerArea) {
+            const profileLinks = headerArea.querySelectorAll('a[href*="/profile.php"], a[href*="/permalink/"], a[data-hovercard-id]');
+            for (const link of profileLinks) {
+              const linkText = link.textContent?.trim();
+              if (linkText && linkText.length > 1 && linkText.length < 100 && 
+                  !linkText.includes('•') && !linkText.includes('·') && 
+                  !linkText.match(/^\d+$/) && !linkText.includes('@')) {
+                username = linkText;
+                console.log(`Username found in profile link: "${username}"`);
+                break;
+              }
+            }
+          }
+        }
+
+        // Extract caption/post text
+        let caption = 'No caption found';
+        const captionSelectors = [
+          // Main post text
+          '[data-testid="post_message"] span',
+          '[data-testid="post_message"]',
+          '.userContent',
+          '.text_exposed_root',
+          // Alternative text selectors
+          '[data-ad-preview="message"]',
+          '.story_body_container',
+          '._5pbx',
+          // Broader selectors
+          'div[dir="auto"]',
+          '.x11i5rnm span',
+          'div[data-ad-comet-preview="message"]'
+        ];
+
+        for (const selector of captionSelectors) {
+          const element = postElement.querySelector(selector);
+          if (element && element.textContent?.trim()) {
+            const text = element.textContent.trim();
+            // Filter out very short text that might be UI elements
+            if (text.length > 10) {
+              caption = text;
+              console.log(`Caption found with selector: ${selector} -> "${caption.substring(0, 100)}..."`);
+              break;
+            }
+          }
+        }
+
+        // Extract image URL
+        let image = undefined;
+        const imageSelectors = [
+          'img[src*="scontent"]',
+          'img[src*="fbcdn"]',
+          '.scaledImageFitWidth img',
+          '[data-testid="post-image"] img',
+          // Alternative image selectors
+          '.spotlight img',
+          '._46-i img',
+          '.uiScaledImageContainer img',
+          // Broader selectors
+          'img[alt]:not([src*="emoji"])'
+        ];
+
+        for (const selector of imageSelectors) {
+          const imgElement = postElement.querySelector(selector) as HTMLImageElement;
+          if (imgElement?.src && imgElement.src.startsWith('http')) {
+            // Skip very small images (likely profile pics or icons)
+            if (imgElement.naturalWidth > 200 || imgElement.width > 200) {
+              image = imgElement.src;
+              console.log(`Image found with selector: ${selector} -> ${image}`);
+              break;
+            }
+          }
+        }
+
+        // Extract timestamp
+        let timestamp = undefined;
+        const timestampSelectors = [
+          'abbr[data-utime]',
+          '[data-testid="story-subtitle"] a',
+          '.timestampContent',
+          '._5ptz',
+          // Alternative timestamp selectors
+          'time',
+          '[title*="20"]', // Years
+          'a[href*="/posts/"]'
+        ];
+
+        for (const selector of timestampSelectors) {
+          const element = postElement.querySelector(selector);
+          if (element) {
+            const timeText = element.textContent?.trim() || element.getAttribute('title') || element.getAttribute('data-utime');
+            if (timeText) {
+              timestamp = timeText;
+              console.log(`Timestamp found with selector: ${selector} -> "${timestamp}"`);
+              break;
+            }
+          }
+        }
+
+        // Generate post URL
+        let postUrl = window.location.href;
+        
+        // Try to find a more specific post URL
+        const linkSelectors = [
+          'a[href*="/posts/"]',
+          'a[href*="/photo/"]',
+          'a[href*="/permalink/"]',
+          '[data-testid="story-subtitle"] a'
+        ];
+
+        for (const selector of linkSelectors) {
+          const linkElement = postElement.querySelector(selector) as HTMLAnchorElement;
+          if (linkElement?.href) {
+            postUrl = linkElement.href;
+            break;
+          }
+        }
+
+        const result: FacebookPostData = {
+          username,
+          caption,
+          image,
+          postUrl,
+          timestamp
+        };
+
+        console.log('=== Facebook Post Extraction Complete ===');
+        console.log('Final result:', result);
+        console.log('Username found:', username !== 'Unknown User');
+        console.log('Caption found:', caption !== 'No caption found');
+        console.log('Image found:', !!image);
+        console.log('Timestamp found:', !!timestamp);
+        console.log('============================================');
+
+        return result;
+      } catch (error) {
+        console.error('Error extracting post data:', error);
         return null;
       }
     }
@@ -760,6 +1345,37 @@ export default defineContentScript({
           sendResponse(null);
         });
         return true; // Indicates we will send a response asynchronously
+      } else if (message.type === 'START_FACEBOOK_EXTRACTION') {
+        console.log('Starting Facebook post data extraction');
+        startFacebookPostExtraction().then(() => {
+          sendResponse({ success: true });
+        }).catch((error) => {
+          console.error('Error starting Facebook data extraction:', error);
+          sendResponse({ success: false, error: error.message });
+        });
+        return true; // Indicates we will send a response asynchronously
+      } else if (message.type === 'CHECK_FACEBOOK_EXTRACTION_STATUS') {
+        console.log('Checking Facebook extraction status');
+        sendResponse({
+          inProgress: facebookExtractionState.inProgress,
+          data: facebookExtractionState.data,
+          startTime: facebookExtractionState.startTime
+        });
+      } else if (message.type === 'GET_FACEBOOK_DATA') {
+        console.log('Legacy Facebook post data extraction requested');
+        // For backward compatibility, start extraction if not already in progress
+        if (!facebookExtractionState.inProgress) {
+          startFacebookPostExtraction().then(() => {
+            sendResponse(facebookExtractionState.data);
+          }).catch((error) => {
+            console.error('Error in Facebook data extraction:', error);
+            sendResponse(null);
+          });
+          return true;
+        } else {
+          // Return current state
+          sendResponse(facebookExtractionState.data);
+        }
       }
     });
 
