@@ -1,4 +1,3 @@
-import { analyzeEmail } from '../utils/backendApi';
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -1354,7 +1353,7 @@ export default defineContentScript({
       }
     }
 
-    // Function to create and show analysis modal on Gmail page
+    // Function to create and show analysis modal on the website
     function showAnalysisModal(result: any, loading: boolean = false) {
       // Remove existing modal if any
       const existingModal = document.getElementById('maiscam-analysis-modal');
@@ -1421,7 +1420,7 @@ export default defineContentScript({
 
       const title = document.createElement('h3');
       title.style.cssText = 'font-size: 18px; font-weight: 600; color: #111827; margin: 0;';
-      title.textContent = 'mAIscam Active';
+      title.textContent = 'mAIscam Alert';
 
       headerLeft.appendChild(icon);
       headerLeft.appendChild(title);
@@ -1473,6 +1472,16 @@ export default defineContentScript({
         loadingDiv.appendChild(spinner);
         loadingDiv.appendChild(loadingText);
         body.appendChild(loadingDiv);
+
+        // Add CSS animation for spinner
+        const style = document.createElement('style');
+        style.textContent = `
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `;
+        document.head.appendChild(style);
       } else if (result) {
         // Analysis result
         const getRiskColor = (riskLevel: string) => {
@@ -1623,25 +1632,13 @@ export default defineContentScript({
           border-top: 1px solid #e5e7eb;
           margin-top: 16px;
         `;
-        footer.textContent = 'Full analysis shown in email.';
+        footer.textContent = 'Analysis powered by mAIscam';
 
         body.appendChild(riskContainer);
         body.appendChild(analysisBox);
         body.appendChild(actionBox);
         body.appendChild(buttonContainer);
         body.appendChild(footer);
-      }
-
-      // Add CSS animation for spinner
-      if (loading) {
-        const style = document.createElement('style');
-        style.textContent = `
-          @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-        `;
-        document.head.appendChild(style);
       }
 
       modal.appendChild(header);
@@ -1769,8 +1766,8 @@ export default defineContentScript({
       
       errorBox.appendChild(errorText);
 
-      const retryButton = document.createElement('button');
-      retryButton.style.cssText = `
+      const closeOnlyButton = document.createElement('button');
+      closeOnlyButton.style.cssText = `
         width: 100%;
         background-color: #ef4444;
         color: white;
@@ -1781,18 +1778,13 @@ export default defineContentScript({
         cursor: pointer;
         transition: background-color 0.2s;
       `;
-      retryButton.textContent = 'Try Again';
-      retryButton.onmouseover = () => retryButton.style.backgroundColor = '#dc2626';
-      retryButton.onmouseout = () => retryButton.style.backgroundColor = '#ef4444';
-      retryButton.onclick = () => {
-        modalContainer.remove();
-        // Retry the analysis
-        const targetLanguage = 'zh'; // Default language, could be extracted from previous attempt
-        analyzeCurrentEmail(targetLanguage);
-      };
+      closeOnlyButton.textContent = 'Close';
+      closeOnlyButton.onmouseover = () => closeOnlyButton.style.backgroundColor = '#dc2626';
+      closeOnlyButton.onmouseout = () => closeOnlyButton.style.backgroundColor = '#ef4444';
+      closeOnlyButton.onclick = () => modalContainer.remove();
 
       body.appendChild(errorBox);
-      body.appendChild(retryButton);
+      body.appendChild(closeOnlyButton);
 
       modal.appendChild(header);
       modal.appendChild(body);
@@ -1808,68 +1800,6 @@ export default defineContentScript({
       document.body.appendChild(modalContainer);
     }
 
-    // Function to analyze email and show modal
-    async function analyzeCurrentEmail(targetLanguage: string = 'zh') {
-      const gmailData = await extractGmailData();
-      if (!gmailData) {
-        console.error('No Gmail data available for analysis');
-        return;
-      }
-
-      // Log extracted email data in JSON format matching backend API
-      const emailJson = {
-        subject: gmailData.subject,      // Backend expects 'subject' not 'title'
-        content: gmailData.content,
-        from_email: gmailData.from,
-        target_language: targetLanguage,
-        reply_to_email: gmailData.replyTo !== 'None' ? gmailData.replyTo : undefined
-      };
-      console.log('📧 Extracted Email Data JSON for Backend API:', JSON.stringify(emailJson, null, 2));
-
-      // Show loading modal
-      showAnalysisModal(null, true);
-
-      try {
-        console.log('🚀 [ANALYZE EMAIL BUTTON] Starting email analysis with backend API...');
-        console.log('📤 [ANALYZE EMAIL BUTTON] About to send POST request to backend with payload:', emailJson);
-        console.log('🔍 [ANALYZE EMAIL BUTTON] This should use the same auth as Test Analyze Endpoint');
-        
-        // Call the new backend API with the proper format
-        const response = await analyzeEmail(
-          gmailData.subject,    // title -> subject
-          gmailData.content,
-          gmailData.from,
-          targetLanguage,
-          gmailData.replyTo !== 'None' ? gmailData.replyTo : undefined
-        );
-        
-        console.log('📥 [ANALYZE EMAIL BUTTON] Received response from backend API');
-        console.log('🔍 [ANALYZE EMAIL BUTTON] Backend API Analysis Response:', JSON.stringify(response, null, 2));
-        
-        if (response.success && response.data[targetLanguage]) {
-          // Show result modal with backend data
-          showAnalysisModal(response.data[targetLanguage], false);
-        } else {
-          console.error('Failed to analyze email:', response);
-          document.getElementById('maiscam-analysis-modal')?.remove();
-          
-          // Show error message to user
-          showAnalysisError('Analysis failed: ' + (response.message || 'Unknown error'));
-        }
-      } catch (err) {
-        console.error('❌ [ANALYZE EMAIL BUTTON] Error analyzing email:', err);
-        console.error('❌ [ANALYZE EMAIL BUTTON] Error details:', {
-          name: err.name,
-          message: err.message,
-          stack: err.stack
-        });
-        document.getElementById('maiscam-analysis-modal')?.remove();
-        
-        // Show user-friendly error message
-        showAnalysisError(err.message || 'Failed to connect to analysis server');
-      }
-    }
-
     // Listen for messages from popup requesting data
     browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.type === 'GET_GMAIL_DATA') {
@@ -1881,9 +1811,6 @@ export default defineContentScript({
           sendResponse(null);
         });
         return true; // Indicates we will send a response asynchronously
-      } else if (message.type === 'ANALYZE_EMAIL') {
-        analyzeCurrentEmail(message.targetLanguage || 'zh');
-        sendResponse({ success: true });
       } else if (message.type === 'GET_WEBSITE_DATA') {
         console.log('Website data extraction requested');
         extractWebsiteData().then((websiteData) => {
@@ -1925,6 +1852,14 @@ export default defineContentScript({
           // Return current state
           sendResponse(facebookExtractionState.data);
         }
+      } else if (message.type === 'SHOW_ANALYSIS_MODAL') {
+        console.log('Showing analysis modal on website:', message.result);
+        showAnalysisModal(message.result, message.loading || false);
+        sendResponse({ success: true });
+      } else if (message.type === 'SHOW_ANALYSIS_ERROR') {
+        console.log('Showing analysis error modal on website:', message.error);
+        showAnalysisError(message.error);
+        sendResponse({ success: true });
       }
     });
 

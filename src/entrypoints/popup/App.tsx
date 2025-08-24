@@ -125,7 +125,7 @@ function App() {
     }, 60000);
   };
 
-  // Function to analyze email for scam - now runs in popup context like test button
+  // Function to analyze email for scam - now shows modal on website
   const analyzeEmailForScam = async () => {
     setLoading(true);
     setError(null);
@@ -133,20 +133,28 @@ function App() {
     setAnalysisResult(null);
     
     try {
-      console.log('🚀 [ANALYZE EMAIL BUTTON - POPUP CONTEXT] Starting email analysis...');
+      console.log('🚀 [ANALYZE EMAIL BUTTON] Starting email analysis...');
       
       // First, extract Gmail data from content script
       const tabs = await browser.tabs.query({ active: true, currentWindow: true });
       if (tabs[0]?.id && tabs[0].url?.includes('mail.google.com')) {
+        
+        // Show loading modal on website first
+        await browser.tabs.sendMessage(tabs[0].id, { 
+          type: 'SHOW_ANALYSIS_MODAL', 
+          result: null, 
+          loading: true 
+        });
+        
         // Get Gmail data from content script (data extraction only)
         const gmailData = await browser.tabs.sendMessage(tabs[0].id, { type: 'GET_GMAIL_DATA' });
-        console.log('📧 [ANALYZE EMAIL BUTTON - POPUP CONTEXT] Extracted Gmail data:', gmailData);
+        console.log('📧 [ANALYZE EMAIL BUTTON] Extracted Gmail data:', gmailData);
         
         if (gmailData) {
           setExtractedData(gmailData);
           
-          // Now analyze in popup context (same as test button)
-          console.log('🎯 [ANALYZE EMAIL BUTTON - POPUP CONTEXT] Running analysis in popup context...');
+          // Now analyze using the same method as before (popup context for auth)
+          console.log('🎯 [ANALYZE EMAIL BUTTON] Running analysis using analyzeEmailWithBackend function...');
           
           const backendRequest = {
             subject: gmailData.subject,
@@ -156,46 +164,80 @@ function App() {
             reply_to_email: gmailData.replyTo !== 'None' ? gmailData.replyTo : undefined
           };
           
-          console.log('📤 [ANALYZE EMAIL BUTTON - POPUP CONTEXT] Backend request:', JSON.stringify(backendRequest, null, 2));
+          console.log('📤 [ANALYZE EMAIL BUTTON] Backend request:', JSON.stringify(backendRequest, null, 2));
           
           // Call backend API directly in popup context (same as test button)
           const backendResponse = await analyzeEmailWithBackend(backendRequest, 'ANALYZE EMAIL BUTTON - POPUP CONTEXT');
           
-          console.log('📥 [ANALYZE EMAIL BUTTON - POPUP CONTEXT] Backend response:', JSON.stringify(backendResponse, null, 2));
+          console.log('📥 [ANALYZE EMAIL BUTTON] Backend response:', JSON.stringify(backendResponse, null, 2));
           
-          // Convert to display format
-          const analysisData = {
-            risk_level: backendResponse.data.risk_level,
-            analysis: backendResponse.data.reasons,
-            recommended_action: backendResponse.data.recommended_action
-          };
-          
-          setAnalysisResult(analysisData);
-          console.log('✅ [ANALYZE EMAIL BUTTON - POPUP CONTEXT] Analysis completed successfully');
+          // Check if response is successful and has data
+          if (backendResponse.success && backendResponse.data) {
+            const analysisData = {
+              risk_level: backendResponse.data.risk_level,
+              analysis: backendResponse.data.reasons,
+              recommended_action: backendResponse.data.recommended_action
+            };
+            
+            // Show analysis result modal on website
+            await browser.tabs.sendMessage(tabs[0].id, { 
+              type: 'SHOW_ANALYSIS_MODAL', 
+              result: analysisData, 
+              loading: false 
+            });
+            
+            console.log('✅ [ANALYZE EMAIL BUTTON] Analysis completed and modal displayed on website');
+          } else {
+            throw new Error(backendResponse.message || 'Analysis failed - no data received');
+          }
           
         } else {
-          setError('No email data found. Make sure you have an email open in Gmail.');
+          // Show error modal on website
+          await browser.tabs.sendMessage(tabs[0].id, { 
+            type: 'SHOW_ANALYSIS_ERROR', 
+            error: 'No email data found. Make sure you have an email open in Gmail.' 
+          });
         }
       } else {
         setError('Please make sure you are on a Gmail page with an email open.');
       }
-    } catch (err) {
-      console.error('❌ [ANALYZE EMAIL BUTTON - POPUP CONTEXT] Error analyzing email:', err);
-      console.error('❌ [ANALYZE EMAIL BUTTON - POPUP CONTEXT] Error details:', {
+    } catch (err: any) {
+      console.error('❌ [ANALYZE EMAIL BUTTON] Error analyzing email:', err);
+      console.error('❌ [ANALYZE EMAIL BUTTON] Error details:', {
         name: err.name,
         message: err.message,
         stack: err.stack
       });
       
-      // More specific error messages based on error type
-      if (err.message?.includes('backend')) {
-        setError('Backend server connection failed. Please ensure the server is running at http://localhost:8000');
-      } else if (err.message?.includes('timeout')) {
-        setError('Analysis request timed out. Please try again.');
-      } else if (err.message?.includes('authentication')) {
-        setError('Authentication failed. API key may be invalid.');
+      // Show error modal on website
+      const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+      if (tabs[0]?.id && tabs[0].url?.includes('mail.google.com')) {
+        let errorMessage = 'Error processing email: ';
+        if (err.message?.includes('backend')) {
+          errorMessage += 'Backend server connection failed. Please ensure the server is running.';
+        } else if (err.message?.includes('timeout')) {
+          errorMessage += 'Analysis request timed out. Please try again.';
+        } else if (err.message?.includes('authentication')) {
+          errorMessage += 'Authentication failed. API key may be invalid.';
+        } else {
+          errorMessage += (err.message || 'Unknown error');
+        }
+        
+        await browser.tabs.sendMessage(tabs[0].id, { 
+          type: 'SHOW_ANALYSIS_ERROR', 
+          error: errorMessage 
+        });
       } else {
-        setError('Error processing email: ' + (err.message || 'Unknown error'));
+        // Fallback to popup error if not on Gmail
+        if (err.message?.includes('backend')) {
+          setError('Backend server connection failed. Please ensure the server is running at http://localhost:8000');
+        } else if (err.message?.includes('timeout')) {
+          setError('Analysis request timed out. Please try again.');
+        } else if (err.message?.includes('authentication')) {
+          setError('Authentication failed. API key may be invalid.');
+        } else {
+          setError('Error processing email: ' + (err.message || 'Unknown error'));
+        }
       }
     } finally {
       setLoading(false);
@@ -223,7 +265,7 @@ function App() {
       } else {
         setError('No active tab found.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error scanning website:', err);
       setError('Error scanning website. Please try again.');
     } finally {
@@ -264,7 +306,7 @@ function App() {
       } else {
         setError('No active tab found.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error starting Facebook extraction:', err);
       setError('Error starting Facebook extraction. Please try again.');
       setFacebookExtractionInProgress(false);
@@ -280,7 +322,7 @@ function App() {
     try {
       const result = await testBackendConnection();
       setConnectionTestResult(result);
-    } catch (err) {
+    } catch (err: any) {
       setConnectionTestResult(`Error testing connection: ${err.message}`);
     } finally {
       setLoading(false);
@@ -295,7 +337,7 @@ function App() {
     try {
       const result = await testOptionsRequest();
       setConnectionTestResult(`OPTIONS Test Result:\n${result}`);
-    } catch (err) {
+    } catch (err: any) {
       setConnectionTestResult(`Error testing OPTIONS: ${err.message}`);
     } finally {
       setLoading(false);
@@ -310,7 +352,7 @@ function App() {
     try {
       const result = await testApiKeyCreation();
       setConnectionTestResult(`API Key Test Result:\n${result}`);
-    } catch (err) {
+    } catch (err: any) {
       setConnectionTestResult(`Error testing API key: ${err.message}`);
     } finally {
       setLoading(false);
@@ -325,7 +367,7 @@ function App() {
     try {
       const result = await getApiKeyStatus();
       setConnectionTestResult(`API Key Status:\n${result}`);
-    } catch (err) {
+    } catch (err: any) {
       setConnectionTestResult(`Error checking API key status: ${err.message}`);
     } finally {
       setLoading(false);
@@ -340,7 +382,7 @@ function App() {
     try {
       await clearCachedApiKey();
       setConnectionTestResult('✅ API key cleared from storage\nNext request will create a new API key');
-    } catch (err) {
+    } catch (err: any) {
       setConnectionTestResult(`Error clearing API key: ${err.message}`);
     } finally {
       setLoading(false);
@@ -355,7 +397,7 @@ function App() {
     try {
       const result = await testAnalyzeEndpoint();
       setConnectionTestResult(`Analyze Endpoint Test Result:\n${result}`);
-    } catch (err) {
+    } catch (err: any) {
       setConnectionTestResult(`Error testing analyze endpoint: ${err.message}`);
     } finally {
       setLoading(false);
@@ -566,7 +608,7 @@ function App() {
                 {LANGUAGE_OPTIONS.find(lang => lang.code === selectedLanguage)?.name || selectedLanguage}
               </span>
               <br />
-              <span className="text-gray-500 mt-1">Analysis results shown below!</span>
+              <span className="text-gray-500 mt-1">Analysis results displayed on the website!</span>
             </p>
           </div>
 
@@ -603,59 +645,6 @@ function App() {
         </div>
       ) : null}
 
-      {analysisResult && (
-        <div className="space-y-4">
-          <div className={`border rounded-lg p-3 ${
-            analysisResult.risk_level === 'high' ? 'bg-red-50 border-red-200' :
-            analysisResult.risk_level === 'medium' ? 'bg-yellow-50 border-yellow-200' :
-            'bg-green-50 border-green-200'
-          }`}>
-            <div className="flex items-center gap-2 mb-2">
-              <span className={
-                analysisResult.risk_level === 'high' ? 'text-red-600' :
-                analysisResult.risk_level === 'medium' ? 'text-yellow-600' :
-                'text-green-600'
-              }>
-                {analysisResult.risk_level === 'high' ? '🚨' : analysisResult.risk_level === 'medium' ? '⚠️' : '✅'}
-              </span>
-              <h3 className={`font-semibold ${
-                analysisResult.risk_level === 'high' ? 'text-red-800' :
-                analysisResult.risk_level === 'medium' ? 'text-yellow-800' :
-                'text-green-800'
-              }`}>
-                Risk Level: {analysisResult.risk_level.toUpperCase()}
-              </h3>
-            </div>
-            <p className={`text-xs ${
-              analysisResult.risk_level === 'high' ? 'text-red-600' :
-              analysisResult.risk_level === 'medium' ? 'text-yellow-600' :
-              'text-green-600'
-            }`}>
-              Analysis completed using backend API - authenticated request
-            </p>
-          </div>
-
-          <div className="space-y-3">
-            <div className="bg-gray-50 p-3 rounded-lg">
-              <h4 className="font-semibold text-gray-700 mb-2 text-sm">🔍 Analysis</h4>
-              <div className="text-sm text-gray-600 break-words bg-white p-2 rounded border">
-                <pre className="whitespace-pre-wrap font-sans text-xs">
-                  {analysisResult.analysis}
-                </pre>
-              </div>
-            </div>
-
-            <div className="bg-gray-50 p-3 rounded-lg">
-              <h4 className="font-semibold text-gray-700 mb-2 text-sm">💡 Recommended Action</h4>
-              <div className="text-sm text-gray-600 break-words bg-white p-2 rounded border">
-                <pre className="whitespace-pre-wrap font-sans text-xs">
-                  {analysisResult.recommended_action}
-                </pre>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {websiteData ? (
         <div className="space-y-4">

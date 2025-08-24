@@ -23,11 +23,11 @@ export interface BackendAnalysisResponse {
 
 // Backend API configuration
 const BACKEND_CONFIG = {
-  // Try localhost instead of 0.0.0.0 as browser extensions may not support 0.0.0.0
+  // Use localhost for debugging
   baseUrl: 'http://localhost:8000',
   fallbackUrls: [
     'http://127.0.0.1:8000',
-    'http://0.0.0.0:8000'
+    'https://mai-scam-backend-uat.onrender.com'
   ],
   endpoints: {
     emailAnalyze: '/email/v1/analyze',
@@ -85,7 +85,7 @@ export async function analyzeEmailWithBackend(request: BackendAnalysisRequest, c
     console.log(`🔐 ${callerInfo}Getting API key for authentication...`);
     apiKey = await getOrCreateApiKey();
     console.log(`✅ ${callerInfo}API key obtained successfully for request`);
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ Failed to get API key:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     throw new BackendApiError(`Failed to get API key for authentication: ${errorMessage}`, 401);
@@ -175,7 +175,7 @@ export async function analyzeEmailWithBackend(request: BackendAnalysisRequest, c
 
     return data as BackendAnalysisResponse;
 
-  } catch (error) {
+  } catch (error: any) {
     clearTimeout(timeoutId);
 
     if (error instanceof Error && error.name === 'AbortError') {
@@ -243,7 +243,7 @@ export async function checkBackendHealth(): Promise<{isHealthy: boolean, working
       } else {
         console.log(`❌ Backend not healthy at ${baseUrl}: ${response.status} ${response.statusText}`);
       }
-    } catch (error) {
+    } catch (error: any) {
       if (typeof timeoutId !== 'undefined') {
         clearTimeout(timeoutId);
       }
@@ -315,7 +315,7 @@ async function getStoredApiKey(): Promise<{apiKey: string | null, createdAt: num
       apiKey: result[API_KEY_STORAGE_KEY] || null,
       createdAt: result[API_KEY_CREATED_KEY] || null
     };
-  } catch (error) {
+  } catch (error: any) {
     console.warn('Failed to get stored API key:', error);
     return { apiKey: null, createdAt: null };
   }
@@ -330,7 +330,7 @@ async function storeApiKey(apiKey: string): Promise<void> {
       [API_KEY_CREATED_KEY]: now
     });
     console.log('✅ API key stored persistently');
-  } catch (error) {
+  } catch (error: any) {
     console.warn('Failed to store API key:', error);
   }
 }
@@ -395,7 +395,7 @@ export async function getOrCreateApiKey(): Promise<string> {
     } else {
       throw new BackendApiError('Invalid API key creation response', 500);
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ Failed to create API key:', error);
     if (error instanceof BackendApiError) {
       throw error;
@@ -409,7 +409,7 @@ async function clearStoredApiKey(): Promise<void> {
   try {
     await browser.storage.local.remove([API_KEY_STORAGE_KEY, API_KEY_CREATED_KEY]);
     console.log('🗑️ Stored API key cleared');
-  } catch (error) {
+  } catch (error: any) {
     console.warn('Failed to clear stored API key:', error);
   }
 }
@@ -441,7 +441,7 @@ export async function testOptionsRequest(): Promise<string> {
     
     return `OPTIONS ${testUrl}: ${response.status} ${response.statusText}`;
     
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ OPTIONS Request Error:', error);
     return `OPTIONS Error: ${error.message}`;
   }
@@ -480,7 +480,7 @@ export async function testBackendConnection(): Promise<string> {
         results.push(`⚠️ ${statusText}`);
       }
       
-    } catch (error) {
+    } catch (error: any) {
       const errorText = `${url}: ${error.name} - ${error.message}`;
       console.log(`❌ Error: ${errorText}`);
       results.push(`❌ ${errorText}`);
@@ -502,7 +502,7 @@ export async function testApiKeyCreation(): Promise<string> {
     
     return `✅ API key created successfully!\nKey: ${apiKey.substring(0, 20)}... (truncated for security)`;
     
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ API key creation test failed:', error);
     return `❌ API key creation failed: ${error.message}`;
   }
@@ -527,7 +527,7 @@ Age: ${daysOld} days old
 Status: ${isExpired ? '⚠️ EXPIRED' : '✅ VALID'}
 Key: ${apiKey.substring(0, 20)}... (truncated)`;
     
-  } catch (error) {
+  } catch (error: any) {
     return `❌ Error checking API key status: ${error.message}`;
   }
 }
@@ -550,7 +550,7 @@ export async function testAnalyzeEndpoint(): Promise<string> {
     
     return `✅ Analyze endpoint test successful!\nResponse: ${JSON.stringify(response, null, 2)}`;
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ [TEST ANALYZE BUTTON] Analyze endpoint test failed:', error);
     console.error('❌ [TEST ANALYZE BUTTON] Error details:', {
       name: error.name,
@@ -599,7 +599,7 @@ export async function analyzeEmail(
     
     return mockFormatResponse;
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ Error in analyzeEmail:', error);
     console.error('❌ Error details:', {
       name: error.name,
