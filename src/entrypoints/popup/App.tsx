@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { testBackendConnection, testOptionsRequest, testAnalyzeEndpoint, testApiKeyCreation, getApiKeyStatus, clearCachedApiKey, analyzeEmailWithBackend } from '../../utils/backendApi';
+import { analyzeEmailWithBackend } from '../../utils/backendApi';
 
 interface GmailData {
   subject: string;
@@ -57,7 +57,6 @@ function App() {
   const [selectedLanguage, setSelectedLanguage] = useState<string>('zh');
   const [scanMode, setScanMode] = useState<ScanMode>('email');
   const [facebookExtractionInProgress, setFacebookExtractionInProgress] = useState(false);
-  const [connectionTestResult, setConnectionTestResult] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<any | null>(null);
 
   // Check for ongoing Facebook extraction when popup opens
@@ -176,7 +175,10 @@ function App() {
             const analysisData = {
               risk_level: backendResponse.data.risk_level,
               analysis: backendResponse.data.reasons,
-              recommended_action: backendResponse.data.recommended_action
+              recommended_action: backendResponse.data.recommended_action,
+              detected_language: backendResponse.data.detected_language || 'unknown',
+              target_language: selectedLanguage,
+              target_language_name: LANGUAGE_OPTIONS.find(lang => lang.code === selectedLanguage)?.name || selectedLanguage
             };
             
             // Show analysis result modal on website
@@ -314,95 +316,6 @@ function App() {
     }
   };
 
-  // Test backend connection
-  const testConnection = async () => {
-    setLoading(true);
-    setConnectionTestResult(null);
-    
-    try {
-      const result = await testBackendConnection();
-      setConnectionTestResult(result);
-    } catch (err: any) {
-      setConnectionTestResult(`Error testing connection: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Test OPTIONS request
-  const testOptions = async () => {
-    setLoading(true);
-    setConnectionTestResult(null);
-    
-    try {
-      const result = await testOptionsRequest();
-      setConnectionTestResult(`OPTIONS Test Result:\n${result}`);
-    } catch (err: any) {
-      setConnectionTestResult(`Error testing OPTIONS: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Test API key creation
-  const testApiKey = async () => {
-    setLoading(true);
-    setConnectionTestResult(null);
-    
-    try {
-      const result = await testApiKeyCreation();
-      setConnectionTestResult(`API Key Test Result:\n${result}`);
-    } catch (err: any) {
-      setConnectionTestResult(`Error testing API key: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Check API key status
-  const checkApiKeyStatus = async () => {
-    setLoading(true);
-    setConnectionTestResult(null);
-    
-    try {
-      const result = await getApiKeyStatus();
-      setConnectionTestResult(`API Key Status:\n${result}`);
-    } catch (err: any) {
-      setConnectionTestResult(`Error checking API key status: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Clear API key
-  const clearApiKey = async () => {
-    setLoading(true);
-    setConnectionTestResult(null);
-    
-    try {
-      await clearCachedApiKey();
-      setConnectionTestResult('✅ API key cleared from storage\nNext request will create a new API key');
-    } catch (err: any) {
-      setConnectionTestResult(`Error clearing API key: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Test analyze endpoint
-  const testAnalyze = async () => {
-    setLoading(true);
-    setConnectionTestResult(null);
-    
-    try {
-      const result = await testAnalyzeEndpoint();
-      setConnectionTestResult(`Analyze Endpoint Test Result:\n${result}`);
-    } catch (err: any) {
-      setConnectionTestResult(`Error testing analyze endpoint: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <div className="w-96 min-h-96 p-4 bg-white">
@@ -508,56 +421,6 @@ function App() {
               </button>
             )}
             
-            {/* Debug: Test Backend Connection Buttons */}
-            <div className="space-y-2">
-              <button
-                onClick={testConnection}
-                disabled={loading}
-                className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed transition-colors font-medium text-sm"
-              >
-                {loading ? 'Testing...' : '🔧 Test Health Check'}
-              </button>
-              
-              <button
-                onClick={testOptions}
-                disabled={loading}
-                className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-purple-400 disabled:cursor-not-allowed transition-colors font-medium text-sm"
-              >
-                {loading ? 'Testing...' : '⚡ Test OPTIONS Request'}
-              </button>
-              
-              <button
-                onClick={testApiKey}
-                disabled={loading}
-                className="w-full px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:bg-orange-400 disabled:cursor-not-allowed transition-colors font-medium text-sm"
-              >
-                {loading ? 'Testing...' : '🔑 Test API Key Creation'}
-              </button>
-              
-              <button
-                onClick={checkApiKeyStatus}
-                disabled={loading}
-                className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed transition-colors font-medium text-sm"
-              >
-                {loading ? 'Checking...' : '📊 Check API Key Status'}
-              </button>
-              
-              <button
-                onClick={clearApiKey}
-                disabled={loading}
-                className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed transition-colors font-medium text-sm"
-              >
-                {loading ? 'Clearing...' : '🗑️ Clear API Key'}
-              </button>
-              
-              <button
-                onClick={testAnalyze}
-                disabled={loading}
-                className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-green-400 disabled:cursor-not-allowed transition-colors font-medium text-sm"
-              >
-                {loading ? 'Testing...' : '🎯 Test Analyze Endpoint (with Auth)'}
-              </button>
-            </div>
           </div>
         </div>
       </div>
@@ -568,20 +431,6 @@ function App() {
         </div>
       )}
 
-      {connectionTestResult && (
-        <div className="mb-4 p-3 bg-blue-100 border border-blue-400 text-blue-700 rounded-lg">
-          <h4 className="font-semibold mb-2">🔧 Backend Connection Test Results:</h4>
-          <pre className="text-xs whitespace-pre-wrap font-mono bg-white p-2 rounded border">
-            {connectionTestResult}
-          </pre>
-          <button
-            onClick={() => setConnectionTestResult(null)}
-            className="mt-2 text-xs text-blue-600 hover:text-blue-800 underline"
-          >
-            Clear Results
-          </button>
-        </div>
-      )}
 
       {facebookExtractionInProgress && !facebookData && (
         <div className="mb-4 p-3 bg-blue-100 border border-blue-400 text-blue-700 rounded-lg">

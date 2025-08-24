@@ -1486,23 +1486,23 @@ export default defineContentScript({
         // Analysis result
         const getRiskColor = (riskLevel: string) => {
           const level = riskLevel.toLowerCase();
-          if (level === 'high' || level === '高') return '#ef4444';
-          if (level === 'medium' || level === '中') return '#f59e0b';
-          return '#10b981';
+          if (level === 'high' || level === '高') return '#dc2626'; // Darker red for high severity
+          if (level === 'medium' || level === '中') return '#ea580c'; // Orange for medium
+          return '#16a34a'; // Green for low risk
         };
 
         const getRiskBg = (riskLevel: string) => {
           const level = riskLevel.toLowerCase();
-          if (level === 'high' || level === '高') return '#fef2f2';
-          if (level === 'medium' || level === '中') return '#fffbeb';
-          return '#f0fdf4';
+          if (level === 'high' || level === '高') return '#fef2f2'; // Light red background
+          if (level === 'medium' || level === '中') return '#fff7ed'; // Light orange background
+          return '#f0fdf4'; // Light green background
         };
 
         const getRiskBorder = (riskLevel: string) => {
           const level = riskLevel.toLowerCase();
-          if (level === 'high' || level === '高') return '#fecaca';
-          if (level === 'medium' || level === '中') return '#fed7aa';
-          return '#bbf7d0';
+          if (level === 'high' || level === '高') return '#fca5a5'; // Red border
+          if (level === 'medium' || level === '中') return '#fdba74'; // Orange border
+          return '#bbf7d0'; // Green border
         };
 
         // Risk level badge
@@ -1522,13 +1522,49 @@ export default defineContentScript({
         `;
         riskBadge.innerHTML = `<span style="margin-right: 8px;">⚠️</span>${result.risk_level.toUpperCase()} RISK`;
         
-        const percentage = document.createElement('div');
-        percentage.style.cssText = 'font-size: 18px; font-weight: bold; color: #111827;';
-        percentage.textContent = result.risk_level === '高' || result.risk_level.toLowerCase() === 'high' ? '79%' : 
-                                result.risk_level === '中' || result.risk_level.toLowerCase() === 'medium' ? '45%' : '15%';
-        
         riskContainer.appendChild(riskBadge);
-        riskContainer.appendChild(percentage);
+
+        // Language information section (create but don't append yet)
+        let languageBox = null;
+        if (result.detected_language || result.target_language) {
+          languageBox = document.createElement('div');
+          languageBox.style.cssText = `
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #d1d5db;
+            background-color: #f9fafb;
+            margin-bottom: 16px;
+          `;
+          
+          const languageTitle = document.createElement('h4');
+          languageTitle.style.cssText = `
+            font-weight: 600;
+            color: #6b7280;
+            margin: 0 0 8px 0;
+            font-size: 13px;
+          `;
+          languageTitle.textContent = '🌐 Language Detection';
+          
+          const languageInfo = document.createElement('div');
+          languageInfo.style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
+          
+          if (result.detected_language) {
+            const detectedLang = document.createElement('div');
+            detectedLang.style.cssText = 'font-size: 12px; color: #4b5563;';
+            detectedLang.innerHTML = `<strong>Detected:</strong> ${result.detected_language.toUpperCase()}`;
+            languageInfo.appendChild(detectedLang);
+          }
+          
+          if (result.target_language && result.target_language_name) {
+            const targetLang = document.createElement('div');
+            targetLang.style.cssText = 'font-size: 12px; color: #4b5563;';
+            targetLang.innerHTML = `<strong>Analysis in:</strong> ${result.target_language_name}`;
+            languageInfo.appendChild(targetLang);
+          }
+          
+          languageBox.appendChild(languageTitle);
+          languageBox.appendChild(languageInfo);
+        }
 
         // Analysis section
         const analysisBox = document.createElement('div');
@@ -1635,6 +1671,9 @@ export default defineContentScript({
         footer.textContent = 'Analysis powered by mAIscam';
 
         body.appendChild(riskContainer);
+        if (languageBox) {
+          body.appendChild(languageBox);
+        }
         body.appendChild(analysisBox);
         body.appendChild(actionBox);
         body.appendChild(buttonContainer);
