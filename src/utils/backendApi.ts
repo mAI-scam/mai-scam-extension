@@ -7,10 +7,20 @@ export interface BackendAnalysisRequest {
   reply_to_email?: string;
 }
 
+export interface WebsiteAnalysisRequest {
+  url: string;
+  title?: string;
+  content?: string;
+  target_language: string;
+  screenshot_data?: string;
+  metadata?: any;
+}
+
 export interface BackendAnalysisResult {
   risk_level: string;
   reasons: string;
   recommended_action: string;
+  detected_language?: string;
 }
 
 export interface BackendAnalysisResponse {
@@ -31,6 +41,7 @@ const BACKEND_CONFIG = {
   ],
   endpoints: {
     emailAnalyze: '/email/v1/analyze',
+    websiteAnalyze: '/website/v1/analyze',
     health: '/email/',
     createApiKey: '/auth/api-key',
     createToken: '/auth/token'
@@ -621,5 +632,95 @@ export async function analyzeEmail(
       console.error('❌ Unexpected error in analyzeEmail');
       throw new Error('An unexpected error occurred during analysis. Please try again.');
     }
+  }
+}
+
+// Website analysis with backend API
+export async function analyzeWebsiteWithBackend(
+  websiteRequest: WebsiteAnalysisRequest,
+  debugContext: string = 'WEBSITE_ANALYSIS'
+): Promise<BackendAnalysisResponse> {
+  console.log(`🌐 [${debugContext}] Starting website analysis with backend API...`);
+  console.log(`🌐 [${debugContext}] Website request:`, JSON.stringify(websiteRequest, null, 2));
+  
+  const apiKey = await getOrCreateApiKey();
+  
+  if (!apiKey) {
+    throw new BackendApiError('Failed to obtain API key for website analysis', 401, 'AUTHENTICATION_ERROR');
+  }
+
+  const healthResult = await checkBackendHealth();
+  if (!healthResult.isHealthy || !healthResult.workingUrl) {
+    throw new BackendConnectionError(`Backend server is not responding. ${healthResult.error}`);
+  }
+
+  const requestUrl = `${healthResult.workingUrl}${BACKEND_CONFIG.endpoints.websiteAnalyze}`;
+  console.log(`🌐 [${debugContext}] Making request to:`, requestUrl);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    console.log(`⏰ [${debugContext}] Request timeout after ${BACKEND_CONFIG.timeout}ms`);
+    controller.abort();
+  }, BACKEND_CONFIG.timeout);
+
+  try {
+    const response = await fetch(requestUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': apiKey
+      },
+      body: JSON.stringify(websiteRequest),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+    console.log(`🌐 [${debugContext}] Response status:`, response.status, response.statusText);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ [${debugContext}] Backend error response:`, errorText);
+      
+      let errorData;
+      try {
+        errorData = JSON.parse(errorText);
+      } catch {
+        errorData = { message: errorText };
+      }
+      
+      throw new BackendApiError(
+        errorData.message || `HTTP ${response.status}`,
+        response.status,
+        errorData.error_code || 'BACKEND_ERROR'
+      );
+    }
+
+    const responseData = await response.json();
+    console.log(`✅ [${debugContext}] Backend response received:`, JSON.stringify(responseData, null, 2));
+
+    if (!responseData.success) {
+      throw new BackendApiError(
+        responseData.message || 'Website analysis failed',
+        responseData.status_code || 500,
+        'ANALYSIS_FAILED'
+      );
+    }
+
+    return responseData as BackendAnalysisResponse;
+
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    
+    if (error.name === 'AbortError') {
+      console.error(`⏰ [${debugContext}] Request aborted due to timeout`);
+      throw new BackendTimeoutError(`Website analysis request timed out after ${BACKEND_CONFIG.timeout / 1000} seconds`);
+    }
+    
+    if (error instanceof BackendApiError) {
+      throw error;
+    }
+    
+    console.error(`💥 [${debugContext}] Unexpected error:`, error);
+    throw new BackendConnectionError(`Failed to connect to backend: ${error.message}`);
   }
 }

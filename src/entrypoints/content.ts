@@ -1486,22 +1486,61 @@ export default defineContentScript({
         // Analysis result
         const getRiskColor = (riskLevel: string) => {
           const level = riskLevel.toLowerCase();
-          if (level === 'high' || level === '高') return '#dc2626'; // Darker red for high severity
-          if (level === 'medium' || level === '中') return '#ea580c'; // Orange for medium
+          
+          // High risk patterns (English, Chinese, Malay, Indonesian, Vietnamese, Thai, Filipino, etc.)
+          if (level === 'high' || level === '高' || level === 'tinggi' || level === 'cao' || 
+              level === 'สูง' || level === 'mataas' || level === 'dhuwur' || level === 'luhur') {
+            return '#dc2626'; // Darker red for high severity
+          }
+          
+          // Medium risk patterns (English, Chinese, Malay, Indonesian, Vietnamese, Thai, Filipino, etc.)
+          if (level === 'medium' || level === '中' || level === '中等' || level === 'sederhana' || 
+              level === 'trung bình' || level === 'ปานกลาง' || level === 'katamtaman' || 
+              level === 'madya' || level === 'sedeng') {
+            return '#d97706'; // Yellow/amber for medium
+          }
+          
+          // Default to green for low risk (covers 'low', '低', 'rendah', 'thấp', 'ต่ำ', 'mababa', etc.)
           return '#16a34a'; // Green for low risk
         };
 
         const getRiskBg = (riskLevel: string) => {
           const level = riskLevel.toLowerCase();
-          if (level === 'high' || level === '高') return '#fef2f2'; // Light red background
-          if (level === 'medium' || level === '中') return '#fff7ed'; // Light orange background
+          
+          // High risk patterns
+          if (level === 'high' || level === '高' || level === 'tinggi' || level === 'cao' || 
+              level === 'สูง' || level === 'mataas' || level === 'dhuwur' || level === 'luhur') {
+            return '#fef2f2'; // Light red background
+          }
+          
+          // Medium risk patterns  
+          if (level === 'medium' || level === '中' || level === '中等' || level === 'sederhana' || 
+              level === 'trung bình' || level === 'ปานกลาง' || level === 'katamtaman' || 
+              level === 'madya' || level === 'sedeng') {
+            return '#fffbeb'; // Light yellow background
+          }
+          
+          // Default to green background for low risk
           return '#f0fdf4'; // Light green background
         };
 
         const getRiskBorder = (riskLevel: string) => {
           const level = riskLevel.toLowerCase();
-          if (level === 'high' || level === '高') return '#fca5a5'; // Red border
-          if (level === 'medium' || level === '中') return '#fdba74'; // Orange border
+          
+          // High risk patterns
+          if (level === 'high' || level === '高' || level === 'tinggi' || level === 'cao' || 
+              level === 'สูง' || level === 'mataas' || level === 'dhuwur' || level === 'luhur') {
+            return '#fca5a5'; // Red border
+          }
+          
+          // Medium risk patterns
+          if (level === 'medium' || level === '中' || level === '中等' || level === 'sederhana' || 
+              level === 'trung bình' || level === 'ปานกลาง' || level === 'katamtaman' || 
+              level === 'madya' || level === 'sedeng') {
+            return '#fde68a'; // Yellow border
+          }
+          
+          // Default to green border for low risk
           return '#bbf7d0'; // Green border
         };
 

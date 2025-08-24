@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { analyzeEmailWithBackend } from '../../utils/backendApi';
+import { analyzeEmailWithBackend, analyzeWebsiteWithBackend } from '../../utils/backendApi';
 
 interface GmailData {
   subject: string;
@@ -128,7 +128,7 @@ function App() {
   const analyzeEmailForScam = async () => {
     setLoading(true);
     setError(null);
-    setExtractedData(null);
+    // Don't clear extractedData - we want to show what we're analyzing
     setAnalysisResult(null);
     
     try {
@@ -246,30 +246,105 @@ function App() {
     }
   };
 
-  // Function to scan current website
-  const scanCurrentWebsite = async () => {
+  // Function to analyze website for scam - matches email demo pattern
+  const analyzeWebsiteForScam = async () => {
     setLoading(true);
     setError(null);
-    setWebsiteData(null);
+    // Don't clear websiteData - we want to show what we're analyzing
     
     try {
+      console.log('🌐 [ANALYZE WEBSITE BUTTON] Starting website analysis...');
+      
       const tabs = await browser.tabs.query({ active: true, currentWindow: true });
-      if (tabs[0]?.id) {
-        // Get website data using DOM parsing
-        const websiteData = await browser.tabs.sendMessage(tabs[0].id, { type: 'GET_WEBSITE_DATA' });
-        console.log('Extracted website data:', websiteData);
-        
-        if (websiteData) {
-          setWebsiteData(websiteData);
-        } else {
-          setError('Failed to extract website content. Please try again.');
-        }
-      } else {
-        setError('No active tab found.');
+      if (!tabs[0]?.id) {
+        throw new Error('No active tab found.');
       }
+
+      // Show loading modal on website immediately 
+      console.log('🌐 [ANALYZE WEBSITE BUTTON] Showing loading modal on website...');
+      await browser.tabs.sendMessage(tabs[0].id, { 
+        type: 'SHOW_ANALYSIS_MODAL', 
+        result: null, 
+        loading: true 
+      });
+
+      // Get website data using DOM parsing
+      console.log('🌐 [ANALYZE WEBSITE BUTTON] Extracting website data...');
+      const websiteData = await browser.tabs.sendMessage(tabs[0].id, { type: 'GET_WEBSITE_DATA' });
+      
+      if (!websiteData) {
+        throw new Error('Failed to extract website content. Please try again.');
+      }
+
+      console.log('🌐 [ANALYZE WEBSITE BUTTON] Extracted website data:', websiteData);
+
+      // Set website data for popup display
+      setWebsiteData(websiteData);
+
+      // Prepare backend request
+      const backendRequest = {
+        url: websiteData.url || tabs[0].url || 'unknown',
+        title: websiteData.title || '',
+        content: websiteData.content || '',
+        target_language: selectedLanguage,
+        metadata: websiteData.metadata || {}
+      };
+
+      console.log('📤 [ANALYZE WEBSITE BUTTON] Sending to backend:', JSON.stringify(backendRequest, null, 2));
+
+      // Call backend API
+      const backendResponse = await analyzeWebsiteWithBackend(backendRequest, 'ANALYZE WEBSITE BUTTON - POPUP CONTEXT');
+      
+      console.log('📥 [ANALYZE WEBSITE BUTTON] Backend response:', JSON.stringify(backendResponse, null, 2));
+      
+      // Check if response is successful and has data
+      if (backendResponse.success && backendResponse.data) {
+        const analysisData = {
+          risk_level: backendResponse.data.risk_level,
+          analysis: backendResponse.data.reasons,
+          recommended_action: backendResponse.data.recommended_action,
+          detected_language: backendResponse.data.detected_language || 'unknown',
+          target_language: selectedLanguage,
+          target_language_name: LANGUAGE_OPTIONS.find(lang => lang.code === selectedLanguage)?.name || selectedLanguage
+        };
+        
+        // Show analysis result modal on website
+        await browser.tabs.sendMessage(tabs[0].id, { 
+          type: 'SHOW_ANALYSIS_MODAL', 
+          result: analysisData, 
+          loading: false 
+        });
+        
+        console.log('✅ [ANALYZE WEBSITE BUTTON] Analysis completed and modal displayed on website');
+      } else {
+        throw new Error(backendResponse.message || 'Analysis failed - no data received');
+      }
+      
     } catch (err: any) {
-      console.error('Error scanning website:', err);
-      setError('Error scanning website. Please try again.');
+      console.error('❌ [ANALYZE WEBSITE BUTTON] Error:', err);
+      
+      try {
+        // Show error modal on website
+        const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+        if (tabs[0]?.id) {
+          await browser.tabs.sendMessage(tabs[0].id, { 
+            type: 'SHOW_ANALYSIS_ERROR', 
+            error: err.message || 'Analysis failed' 
+          });
+        }
+      } catch (modalError) {
+        console.error('Failed to show error modal:', modalError);
+        // Fallback to popup error display
+        let errorMessage = 'Website analysis failed: ';
+        if (err.message?.includes('Backend server is not responding')) {
+          errorMessage += 'Cannot connect to analysis server. Please ensure the backend server is running.';
+        } else if (err.message?.includes('timed out')) {
+          errorMessage += 'Request timed out. Please try again.';
+        } else {
+          errorMessage += (err.message || 'Unknown error');
+        }
+        setError(errorMessage);
+      }
     } finally {
       setLoading(false);
     }
@@ -364,8 +439,8 @@ function App() {
             </div>
           </div>
 
-          {/* Language Selector - only show for email scanning */}
-          {scanMode === 'email' && (
+          {/* Language Selector - show for email and website scanning */}
+          {(scanMode === 'email' || scanMode === 'website') && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 🌐 Analysis Language
@@ -390,7 +465,7 @@ function App() {
             <button
               onClick={
                 scanMode === 'email' ? analyzeEmailForScam : 
-                scanMode === 'website' ? scanCurrentWebsite : 
+                scanMode === 'website' ? analyzeWebsiteForScam : 
                 scanFacebookPost
               }
               disabled={loading}
@@ -398,10 +473,10 @@ function App() {
             >
               {loading 
                 ? (scanMode === 'email' ? 'Analyzing Email...' : 
-                   scanMode === 'website' ? 'Scanning Website...' : 
+                   scanMode === 'website' ? 'Analyzing Website...' : 
                    facebookExtractionInProgress ? 'Waiting for Post Selection...' : 'Starting Facebook Extraction...') 
                 : (scanMode === 'email' ? '🛡️ Analyze Email' : 
-                   scanMode === 'website' ? '🔍 Scan Website' : 
+                   scanMode === 'website' ? '🛡️ Analyze Website' : 
                    '📱 Scan Facebook Post')
               }
             </button>
@@ -457,7 +532,7 @@ function App() {
                 {LANGUAGE_OPTIONS.find(lang => lang.code === selectedLanguage)?.name || selectedLanguage}
               </span>
               <br />
-              <span className="text-gray-500 mt-1">Analysis results displayed on the website!</span>
+              <span className="text-gray-500 mt-1">Analysis results displayed in modal on the website!</span>
             </p>
           </div>
 
@@ -503,7 +578,12 @@ function App() {
               <h3 className="font-semibold text-blue-800">Website Content Extracted</h3>
             </div>
             <p className="text-xs text-blue-600">
-              Website content parsed from DOM - {websiteData.content.length} characters
+              Content extracted and analyzed using backend API in{' '}
+              <span className="font-medium">
+                {LANGUAGE_OPTIONS.find(lang => lang.code === selectedLanguage)?.name || selectedLanguage}
+              </span>
+              <br />
+              <span className="text-gray-500 mt-1">Analysis results displayed in modal on the website!</span>
             </p>
           </div>
 
