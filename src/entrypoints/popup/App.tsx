@@ -10,7 +10,7 @@ interface GmailData {
 interface WebsiteData {
   url: string;
   title: string;
-  screenshot: string;
+  content: string;
   metadata: {
     description?: string;
     keywords?: string;
@@ -168,14 +168,14 @@ function App() {
     try {
       const tabs = await browser.tabs.query({ active: true, currentWindow: true });
       if (tabs[0]?.id) {
-        // Get website data including screenshot
+        // Get website data using DOM parsing
         const websiteData = await browser.tabs.sendMessage(tabs[0].id, { type: 'GET_WEBSITE_DATA' });
         console.log('Extracted website data:', websiteData);
         
         if (websiteData) {
           setWebsiteData(websiteData);
         } else {
-          setError('Failed to extract website data. Please try again.');
+          setError('Failed to extract website content. Please try again.');
         }
       } else {
         setError('No active tab found.');
@@ -407,10 +407,10 @@ function App() {
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-blue-600">✅</span>
-              <h3 className="font-semibold text-blue-800">Website Data Extracted</h3>
+              <h3 className="font-semibold text-blue-800">Website Content Extracted</h3>
             </div>
             <p className="text-xs text-blue-600">
-              Website information successfully captured
+              Website content parsed from DOM - {websiteData.content.length} characters
             </p>
           </div>
 
@@ -444,16 +444,19 @@ function App() {
               </div>
             )}
 
-            {websiteData.screenshot && (
-              <div className="bg-gray-50 p-3 rounded-lg">
-                <h4 className="font-semibold text-gray-700 mb-2 text-sm">📸 Screenshot</h4>
-                <img 
-                  src={websiteData.screenshot} 
-                  alt="Website screenshot" 
-                  className="w-full rounded border max-h-48 object-cover"
-                />
+            <div className="bg-gray-50 p-3 rounded-lg">
+              <h4 className="font-semibold text-gray-700 mb-2 text-sm">📄 Page Content</h4>
+              <div className="text-sm text-gray-600 max-h-32 overflow-y-auto break-words bg-white p-2 rounded border">
+                <pre className="whitespace-pre-wrap font-sans text-xs">
+                  {websiteData.content.length > 400 
+                    ? websiteData.content.substring(0, 400) + '...' 
+                    : websiteData.content}
+                </pre>
               </div>
-            )}
+              {websiteData.content.length > 400 && (
+                <p className="text-xs text-gray-500 mt-1">Content truncated for display</p>
+              )}
+            </div>
           </div>
         </div>
       ) : null}

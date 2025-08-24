@@ -29,7 +29,7 @@ export default defineContentScript({
     interface WebsiteData {
       url: string;
       title: string;
-      screenshot: string;
+      content: string;
       metadata: {
         description?: string;
         keywords?: string;
@@ -565,7 +565,7 @@ export default defineContentScript({
       }
     }
 
-    // Function to extract website data including screenshot
+    // Function to extract website data with DOM parsing instead of screenshots
     async function extractWebsiteData(): Promise<WebsiteData | null> {
       try {
         console.log('Starting website data extraction...');
@@ -604,35 +604,26 @@ export default defineContentScript({
           metadata.favicon = faviconLink.href;
         }
         
-        // Take screenshot using chrome.tabs.captureVisibleTab
-        let screenshot = '';
+        // Extract DOM text content instead of screenshot
+        let content = '';
         try {
-          // Request screenshot from background script
-          screenshot = await new Promise((resolve, reject) => {
-            browser.runtime.sendMessage({ type: 'CAPTURE_SCREENSHOT' }, (response) => {
-              if (browser.runtime.lastError) {
-                reject(browser.runtime.lastError);
-              } else {
-                resolve(response?.screenshot || '');
-              }
-            });
-          });
+          content = await extractPageContent();
         } catch (error) {
-          console.warn('Could not capture screenshot:', error);
-          screenshot = '';
+          console.warn('Could not extract page content:', error);
+          content = 'Content extraction failed';
         }
         
         const result: WebsiteData = {
           url,
           title,
-          screenshot,
+          content,
           metadata
         };
         
         console.log('=== Website Extraction Complete ===');
         console.log('Final result:', {
           ...result,
-          screenshot: screenshot ? `[Screenshot captured: ${screenshot.length} chars]` : '[No screenshot]'
+          content: content ? `[Content extracted: ${content.length} chars] ${content.substring(0, 100)}...` : '[No content]'
         });
         console.log('URL:', url);
         console.log('Title:', title);
@@ -645,6 +636,157 @@ export default defineContentScript({
         console.error('Error extracting website data:', error);
         return null;
       }
+    }
+
+    // Function to extract meaningful page content from DOM
+    async function extractPageContent(): Promise<string> {
+      console.log('Starting DOM content extraction...');
+      
+      // Elements to exclude from content extraction
+      const excludeSelectors = [
+        'script', 'style', 'link', 'meta',
+        'nav', 'footer', 'aside', 'header[role="banner"]',
+        '.navigation', '.navbar', '.menu', '.sidebar',
+        '.ad', '.advertisement', '.ads', '[class*="ad-"]', '[id*="ad-"]',
+        '.social', '.share', '.comment', '.comments',
+        '.popup', '.modal', '.overlay',
+        '.cookie', '.banner', '.notice',
+        '[role="navigation"]', '[role="banner"]', '[role="complementary"]',
+        '.breadcrumb', '.pagination',
+        'button', 'input', 'select', 'textarea', 'form'
+      ];
+      
+      // Priority selectors for main content (in order of preference)
+      const contentSelectors = [
+        'main',
+        '[role="main"]',
+        '.main-content',
+        '.content',
+        '.post-content',
+        '.article-content',
+        '.entry-content',
+        'article',
+        '.container .content',
+        '.page-content',
+        '.body-content'
+      ];
+      
+      let extractedContent = '';
+      
+      // Try to find main content area first
+      for (const selector of contentSelectors) {
+        const mainElement = document.querySelector(selector);
+        if (mainElement) {
+          console.log(`Found main content with selector: ${selector}`);
+          extractedContent = extractTextFromElement(mainElement, excludeSelectors);
+          if (extractedContent.trim().length > 100) { // Must have substantial content
+            break;
+          }
+        }
+      }
+      
+      // If no main content found or insufficient content, try body extraction
+      if (extractedContent.trim().length < 100) {
+        console.log('Main content insufficient, extracting from body...');
+        extractedContent = extractTextFromElement(document.body, excludeSelectors);
+      }
+      
+      // Clean and limit the content
+      const cleanedContent = cleanExtractedContent(extractedContent);
+      
+      console.log(`Content extraction result: ${cleanedContent.length} characters`);
+      return cleanedContent;
+    }
+    
+    // Function to extract text from an element while excluding unwanted parts
+    function extractTextFromElement(element: Element, excludeSelectors: string[]): string {
+      // Clone the element to avoid modifying the original DOM
+      const clone = element.cloneNode(true) as Element;
+      
+      // Remove excluded elements
+      excludeSelectors.forEach(selector => {
+        try {
+          const elementsToRemove = clone.querySelectorAll(selector);
+          elementsToRemove.forEach(el => el.remove());
+        } catch (e) {
+          // Ignore invalid selectors
+        }
+      });
+      
+      // Extract text content in a structured way
+      let text = '';
+      
+      // Function to recursively extract text while preserving some structure
+      function extractStructuredText(node: Node): string {
+        let result = '';
+        
+        if (node.nodeType === Node.TEXT_NODE) {
+          const textContent = node.textContent?.trim();
+          if (textContent && textContent.length > 0) {
+            result += textContent + ' ';
+          }
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+          const element = node as Element;
+          const tagName = element.tagName?.toLowerCase();
+          
+          // Add structure markers for important elements
+          if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tagName)) {
+            result += '\n### ';
+          } else if (['p', 'div', 'section', 'article'].includes(tagName)) {
+            result += '\n';
+          } else if (['li'].includes(tagName)) {
+            result += '\n• ';
+          } else if (['br'].includes(tagName)) {
+            result += '\n';
+          }
+          
+          // Recursively process child nodes
+          for (const child of Array.from(element.childNodes)) {
+            result += extractStructuredText(child);
+          }
+          
+          // Add spacing after block elements
+          if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'div', 'section', 'article'].includes(tagName)) {
+            result += '\n';
+          }
+        }
+        
+        return result;
+      }
+      
+      text = extractStructuredText(clone);
+      return text;
+    }
+    
+    // Function to clean and limit extracted content
+    function cleanExtractedContent(content: string): string {
+      // Remove excessive whitespace and normalize line breaks
+      let cleaned = content
+        .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+        .replace(/\n\s*\n/g, '\n') // Remove empty lines
+        .replace(/^\s+|\s+$/g, '') // Trim start and end
+        .replace(/\n{3,}/g, '\n\n'); // Limit consecutive line breaks to 2
+      
+      // Limit total length to prevent overwhelming the LLM
+      const maxLength = 2500; // Conservative limit for API efficiency
+      if (cleaned.length > maxLength) {
+        // Try to cut at a sentence or paragraph boundary
+        const truncated = cleaned.substring(0, maxLength);
+        const lastSentenceEnd = Math.max(
+          truncated.lastIndexOf('.'),
+          truncated.lastIndexOf('!'),
+          truncated.lastIndexOf('?'),
+          truncated.lastIndexOf('\n\n')
+        );
+        
+        if (lastSentenceEnd > maxLength * 0.7) { // Only cut at boundary if it's not too short
+          cleaned = truncated.substring(0, lastSentenceEnd + 1) + '\n\n[Content truncated for analysis efficiency]';
+        } else {
+          cleaned = truncated + '...\n\n[Content truncated for analysis efficiency]';
+        }
+      }
+      
+      return cleaned;
     }
 
     // Function to start Facebook post data extraction with state management
