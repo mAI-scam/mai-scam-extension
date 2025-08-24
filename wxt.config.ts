@@ -12,7 +12,8 @@ export default defineConfig({
     permissions: [
       'activeTab',
       'tabs',
-      'scripting'
+      'scripting',
+      'storage'
     ],
     host_permissions: [
       '*://mail.google.com/*',

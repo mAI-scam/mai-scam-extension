@@ -1,4 +1,4 @@
-import { analyzeEmail, AnalysisRequest, AnalysisResponse } from '../utils/mockApi';
+import { analyzeEmail } from '../utils/backendApi';
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -1658,6 +1658,156 @@ export default defineContentScript({
       document.body.appendChild(modalContainer);
     }
 
+    // Function to show analysis error modal
+    function showAnalysisError(errorMessage: string) {
+      // Remove existing modal if any
+      const existingModal = document.getElementById('maiscam-analysis-modal');
+      if (existingModal) {
+        existingModal.remove();
+      }
+
+      // Create modal container
+      const modalContainer = document.createElement('div');
+      modalContainer.id = 'maiscam-analysis-modal';
+      modalContainer.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      `;
+
+      // Create modal content
+      const modal = document.createElement('div');
+      modal.style.cssText = `
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        max-width: 400px;
+        width: 90%;
+        max-height: 90vh;
+        overflow-y: auto;
+      `;
+
+      // Modal header
+      const header = document.createElement('div');
+      header.style.cssText = `
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px;
+        border-bottom: 1px solid #e5e7eb;
+      `;
+
+      const headerLeft = document.createElement('div');
+      headerLeft.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+      
+      const icon = document.createElement('div');
+      icon.style.cssText = `
+        width: 24px;
+        height: 24px;
+        background-color: #ef4444;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 12px;
+        font-weight: bold;
+      `;
+      icon.textContent = '⚠️';
+
+      const title = document.createElement('h3');
+      title.style.cssText = 'font-size: 18px; font-weight: 600; color: #111827; margin: 0;';
+      title.textContent = 'Analysis Error';
+
+      headerLeft.appendChild(icon);
+      headerLeft.appendChild(title);
+
+      const closeButton = document.createElement('button');
+      closeButton.style.cssText = `
+        background: none;
+        border: none;
+        color: #9ca3af;
+        cursor: pointer;
+        font-size: 24px;
+        padding: 0;
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      `;
+      closeButton.innerHTML = '×';
+      closeButton.onclick = () => modalContainer.remove();
+
+      header.appendChild(headerLeft);
+      header.appendChild(closeButton);
+
+      // Modal body
+      const body = document.createElement('div');
+      body.style.cssText = 'padding: 24px;';
+
+      const errorBox = document.createElement('div');
+      errorBox.style.cssText = `
+        padding: 16px;
+        border-radius: 8px;
+        border: 1px solid #fecaca;
+        background-color: #fef2f2;
+        margin-bottom: 16px;
+      `;
+      
+      const errorText = document.createElement('p');
+      errorText.style.cssText = 'color: #374151; font-size: 14px; line-height: 1.5; margin: 0;';
+      errorText.textContent = errorMessage;
+      
+      errorBox.appendChild(errorText);
+
+      const retryButton = document.createElement('button');
+      retryButton.style.cssText = `
+        width: 100%;
+        background-color: #ef4444;
+        color: white;
+        font-weight: 500;
+        padding: 8px 16px;
+        border-radius: 8px;
+        border: none;
+        cursor: pointer;
+        transition: background-color 0.2s;
+      `;
+      retryButton.textContent = 'Try Again';
+      retryButton.onmouseover = () => retryButton.style.backgroundColor = '#dc2626';
+      retryButton.onmouseout = () => retryButton.style.backgroundColor = '#ef4444';
+      retryButton.onclick = () => {
+        modalContainer.remove();
+        // Retry the analysis
+        const targetLanguage = 'zh'; // Default language, could be extracted from previous attempt
+        analyzeCurrentEmail(targetLanguage);
+      };
+
+      body.appendChild(errorBox);
+      body.appendChild(retryButton);
+
+      modal.appendChild(header);
+      modal.appendChild(body);
+      modalContainer.appendChild(modal);
+      
+      // Close modal when clicking backdrop
+      modalContainer.onclick = (e) => {
+        if (e.target === modalContainer) {
+          modalContainer.remove();
+        }
+      };
+
+      document.body.appendChild(modalContainer);
+    }
+
     // Function to analyze email and show modal
     async function analyzeCurrentEmail(targetLanguage: string = 'zh') {
       const gmailData = await extractGmailData();
@@ -1666,39 +1816,57 @@ export default defineContentScript({
         return;
       }
 
-      // Log extracted email data in JSON format
+      // Log extracted email data in JSON format matching backend API
       const emailJson = {
-        title: gmailData.subject,
+        subject: gmailData.subject,      // Backend expects 'subject' not 'title'
         content: gmailData.content,
         from_email: gmailData.from,
-        target_language: targetLanguage
+        target_language: targetLanguage,
+        reply_to_email: gmailData.replyTo !== 'None' ? gmailData.replyTo : undefined
       };
-      console.log('📧 Extracted Email Data JSON:', JSON.stringify(emailJson, null, 2));
+      console.log('📧 Extracted Email Data JSON for Backend API:', JSON.stringify(emailJson, null, 2));
 
       // Show loading modal
       showAnalysisModal(null, true);
 
       try {
-        const request: AnalysisRequest = {
-          title: gmailData.subject,
-          content: gmailData.content,
-          from_email: gmailData.from,
-          target_language: targetLanguage
-        };
-
-        const response: AnalysisResponse = await analyzeEmail(request);
-        console.log('🔍 API Analysis Response:', JSON.stringify(response, null, 2));
+        console.log('🚀 [ANALYZE EMAIL BUTTON] Starting email analysis with backend API...');
+        console.log('📤 [ANALYZE EMAIL BUTTON] About to send POST request to backend with payload:', emailJson);
+        console.log('🔍 [ANALYZE EMAIL BUTTON] This should use the same auth as Test Analyze Endpoint');
+        
+        // Call the new backend API with the proper format
+        const response = await analyzeEmail(
+          gmailData.subject,    // title -> subject
+          gmailData.content,
+          gmailData.from,
+          targetLanguage,
+          gmailData.replyTo !== 'None' ? gmailData.replyTo : undefined
+        );
+        
+        console.log('📥 [ANALYZE EMAIL BUTTON] Received response from backend API');
+        console.log('🔍 [ANALYZE EMAIL BUTTON] Backend API Analysis Response:', JSON.stringify(response, null, 2));
         
         if (response.success && response.data[targetLanguage]) {
-          // Show result modal
+          // Show result modal with backend data
           showAnalysisModal(response.data[targetLanguage], false);
         } else {
-          console.error('Failed to analyze email');
+          console.error('Failed to analyze email:', response);
           document.getElementById('maiscam-analysis-modal')?.remove();
+          
+          // Show error message to user
+          showAnalysisError('Analysis failed: ' + (response.message || 'Unknown error'));
         }
       } catch (err) {
-        console.error('Error analyzing email:', err);
+        console.error('❌ [ANALYZE EMAIL BUTTON] Error analyzing email:', err);
+        console.error('❌ [ANALYZE EMAIL BUTTON] Error details:', {
+          name: err.name,
+          message: err.message,
+          stack: err.stack
+        });
         document.getElementById('maiscam-analysis-modal')?.remove();
+        
+        // Show user-friendly error message
+        showAnalysisError(err.message || 'Failed to connect to analysis server');
       }
     }
 

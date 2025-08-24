@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { testBackendConnection, testOptionsRequest, testAnalyzeEndpoint, testApiKeyCreation, getApiKeyStatus, clearCachedApiKey, analyzeEmailWithBackend } from '../../utils/backendApi';
 
 interface GmailData {
   subject: string;
@@ -56,6 +57,8 @@ function App() {
   const [selectedLanguage, setSelectedLanguage] = useState<string>('zh');
   const [scanMode, setScanMode] = useState<ScanMode>('email');
   const [facebookExtractionInProgress, setFacebookExtractionInProgress] = useState(false);
+  const [connectionTestResult, setConnectionTestResult] = useState<string | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<any | null>(null);
 
   // Check for ongoing Facebook extraction when popup opens
   useEffect(() => {
@@ -122,29 +125,54 @@ function App() {
     }, 60000);
   };
 
-  // Function to analyze email for scam - extract data and trigger content script modal
+  // Function to analyze email for scam - now runs in popup context like test button
   const analyzeEmailForScam = async () => {
     setLoading(true);
     setError(null);
     setExtractedData(null);
+    setAnalysisResult(null);
     
     try {
-      // First, extract Gmail data to show in popup
+      console.log('🚀 [ANALYZE EMAIL BUTTON - POPUP CONTEXT] Starting email analysis...');
+      
+      // First, extract Gmail data from content script
       const tabs = await browser.tabs.query({ active: true, currentWindow: true });
       if (tabs[0]?.id && tabs[0].url?.includes('mail.google.com')) {
-        // Get Gmail data
+        // Get Gmail data from content script (data extraction only)
         const gmailData = await browser.tabs.sendMessage(tabs[0].id, { type: 'GET_GMAIL_DATA' });
-        console.log('Extracted Gmail data:', gmailData);
+        console.log('📧 [ANALYZE EMAIL BUTTON - POPUP CONTEXT] Extracted Gmail data:', gmailData);
         
         if (gmailData) {
           setExtractedData(gmailData);
           
-          // Then send message to content script to analyze and show modal
-          await browser.tabs.sendMessage(tabs[0].id, { 
-            type: 'ANALYZE_EMAIL', 
-            targetLanguage: selectedLanguage 
-          });
-          console.log('Analysis request sent to content script');
+          // Now analyze in popup context (same as test button)
+          console.log('🎯 [ANALYZE EMAIL BUTTON - POPUP CONTEXT] Running analysis in popup context...');
+          
+          const backendRequest = {
+            subject: gmailData.subject,
+            content: gmailData.content,
+            from_email: gmailData.from,
+            target_language: selectedLanguage,
+            reply_to_email: gmailData.replyTo !== 'None' ? gmailData.replyTo : undefined
+          };
+          
+          console.log('📤 [ANALYZE EMAIL BUTTON - POPUP CONTEXT] Backend request:', JSON.stringify(backendRequest, null, 2));
+          
+          // Call backend API directly in popup context (same as test button)
+          const backendResponse = await analyzeEmailWithBackend(backendRequest, 'ANALYZE EMAIL BUTTON - POPUP CONTEXT');
+          
+          console.log('📥 [ANALYZE EMAIL BUTTON - POPUP CONTEXT] Backend response:', JSON.stringify(backendResponse, null, 2));
+          
+          // Convert to display format
+          const analysisData = {
+            risk_level: backendResponse.data.risk_level,
+            analysis: backendResponse.data.reasons,
+            recommended_action: backendResponse.data.recommended_action
+          };
+          
+          setAnalysisResult(analysisData);
+          console.log('✅ [ANALYZE EMAIL BUTTON - POPUP CONTEXT] Analysis completed successfully');
+          
         } else {
           setError('No email data found. Make sure you have an email open in Gmail.');
         }
@@ -152,8 +180,23 @@ function App() {
         setError('Please make sure you are on a Gmail page with an email open.');
       }
     } catch (err) {
-      console.error('Error processing email:', err);
-      setError('Error processing email. Make sure you are on Gmail with an email open.');
+      console.error('❌ [ANALYZE EMAIL BUTTON - POPUP CONTEXT] Error analyzing email:', err);
+      console.error('❌ [ANALYZE EMAIL BUTTON - POPUP CONTEXT] Error details:', {
+        name: err.name,
+        message: err.message,
+        stack: err.stack
+      });
+      
+      // More specific error messages based on error type
+      if (err.message?.includes('backend')) {
+        setError('Backend server connection failed. Please ensure the server is running at http://localhost:8000');
+      } else if (err.message?.includes('timeout')) {
+        setError('Analysis request timed out. Please try again.');
+      } else if (err.message?.includes('authentication')) {
+        setError('Authentication failed. API key may be invalid.');
+      } else {
+        setError('Error processing email: ' + (err.message || 'Unknown error'));
+      }
     } finally {
       setLoading(false);
     }
@@ -225,6 +268,96 @@ function App() {
       console.error('Error starting Facebook extraction:', err);
       setError('Error starting Facebook extraction. Please try again.');
       setFacebookExtractionInProgress(false);
+      setLoading(false);
+    }
+  };
+
+  // Test backend connection
+  const testConnection = async () => {
+    setLoading(true);
+    setConnectionTestResult(null);
+    
+    try {
+      const result = await testBackendConnection();
+      setConnectionTestResult(result);
+    } catch (err) {
+      setConnectionTestResult(`Error testing connection: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Test OPTIONS request
+  const testOptions = async () => {
+    setLoading(true);
+    setConnectionTestResult(null);
+    
+    try {
+      const result = await testOptionsRequest();
+      setConnectionTestResult(`OPTIONS Test Result:\n${result}`);
+    } catch (err) {
+      setConnectionTestResult(`Error testing OPTIONS: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Test API key creation
+  const testApiKey = async () => {
+    setLoading(true);
+    setConnectionTestResult(null);
+    
+    try {
+      const result = await testApiKeyCreation();
+      setConnectionTestResult(`API Key Test Result:\n${result}`);
+    } catch (err) {
+      setConnectionTestResult(`Error testing API key: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Check API key status
+  const checkApiKeyStatus = async () => {
+    setLoading(true);
+    setConnectionTestResult(null);
+    
+    try {
+      const result = await getApiKeyStatus();
+      setConnectionTestResult(`API Key Status:\n${result}`);
+    } catch (err) {
+      setConnectionTestResult(`Error checking API key status: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Clear API key
+  const clearApiKey = async () => {
+    setLoading(true);
+    setConnectionTestResult(null);
+    
+    try {
+      await clearCachedApiKey();
+      setConnectionTestResult('✅ API key cleared from storage\nNext request will create a new API key');
+    } catch (err) {
+      setConnectionTestResult(`Error clearing API key: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Test analyze endpoint
+  const testAnalyze = async () => {
+    setLoading(true);
+    setConnectionTestResult(null);
+    
+    try {
+      const result = await testAnalyzeEndpoint();
+      setConnectionTestResult(`Analyze Endpoint Test Result:\n${result}`);
+    } catch (err) {
+      setConnectionTestResult(`Error testing analyze endpoint: ${err.message}`);
+    } finally {
       setLoading(false);
     }
   };
@@ -332,6 +465,57 @@ function App() {
                 🔄 Clear Results
               </button>
             )}
+            
+            {/* Debug: Test Backend Connection Buttons */}
+            <div className="space-y-2">
+              <button
+                onClick={testConnection}
+                disabled={loading}
+                className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed transition-colors font-medium text-sm"
+              >
+                {loading ? 'Testing...' : '🔧 Test Health Check'}
+              </button>
+              
+              <button
+                onClick={testOptions}
+                disabled={loading}
+                className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-purple-400 disabled:cursor-not-allowed transition-colors font-medium text-sm"
+              >
+                {loading ? 'Testing...' : '⚡ Test OPTIONS Request'}
+              </button>
+              
+              <button
+                onClick={testApiKey}
+                disabled={loading}
+                className="w-full px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:bg-orange-400 disabled:cursor-not-allowed transition-colors font-medium text-sm"
+              >
+                {loading ? 'Testing...' : '🔑 Test API Key Creation'}
+              </button>
+              
+              <button
+                onClick={checkApiKeyStatus}
+                disabled={loading}
+                className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed transition-colors font-medium text-sm"
+              >
+                {loading ? 'Checking...' : '📊 Check API Key Status'}
+              </button>
+              
+              <button
+                onClick={clearApiKey}
+                disabled={loading}
+                className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed transition-colors font-medium text-sm"
+              >
+                {loading ? 'Clearing...' : '🗑️ Clear API Key'}
+              </button>
+              
+              <button
+                onClick={testAnalyze}
+                disabled={loading}
+                className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-green-400 disabled:cursor-not-allowed transition-colors font-medium text-sm"
+              >
+                {loading ? 'Testing...' : '🎯 Test Analyze Endpoint (with Auth)'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -339,6 +523,21 @@ function App() {
       {error && (
         <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg">
           <p className="text-sm">{error}</p>
+        </div>
+      )}
+
+      {connectionTestResult && (
+        <div className="mb-4 p-3 bg-blue-100 border border-blue-400 text-blue-700 rounded-lg">
+          <h4 className="font-semibold mb-2">🔧 Backend Connection Test Results:</h4>
+          <pre className="text-xs whitespace-pre-wrap font-mono bg-white p-2 rounded border">
+            {connectionTestResult}
+          </pre>
+          <button
+            onClick={() => setConnectionTestResult(null)}
+            className="mt-2 text-xs text-blue-600 hover:text-blue-800 underline"
+          >
+            Clear Results
+          </button>
         </div>
       )}
 
@@ -362,10 +561,12 @@ function App() {
               <h3 className="font-semibold text-green-800">Email Content Extracted</h3>
             </div>
             <p className="text-xs text-green-600">
-              Content extracted and analysis initiated in{' '}
+              Content extracted and analyzed using backend API in{' '}
               <span className="font-medium">
                 {LANGUAGE_OPTIONS.find(lang => lang.code === selectedLanguage)?.name || selectedLanguage}
               </span>
+              <br />
+              <span className="text-gray-500 mt-1">Analysis results shown below!</span>
             </p>
           </div>
 
@@ -401,6 +602,60 @@ function App() {
           </div>
         </div>
       ) : null}
+
+      {analysisResult && (
+        <div className="space-y-4">
+          <div className={`border rounded-lg p-3 ${
+            analysisResult.risk_level === 'high' ? 'bg-red-50 border-red-200' :
+            analysisResult.risk_level === 'medium' ? 'bg-yellow-50 border-yellow-200' :
+            'bg-green-50 border-green-200'
+          }`}>
+            <div className="flex items-center gap-2 mb-2">
+              <span className={
+                analysisResult.risk_level === 'high' ? 'text-red-600' :
+                analysisResult.risk_level === 'medium' ? 'text-yellow-600' :
+                'text-green-600'
+              }>
+                {analysisResult.risk_level === 'high' ? '🚨' : analysisResult.risk_level === 'medium' ? '⚠️' : '✅'}
+              </span>
+              <h3 className={`font-semibold ${
+                analysisResult.risk_level === 'high' ? 'text-red-800' :
+                analysisResult.risk_level === 'medium' ? 'text-yellow-800' :
+                'text-green-800'
+              }`}>
+                Risk Level: {analysisResult.risk_level.toUpperCase()}
+              </h3>
+            </div>
+            <p className={`text-xs ${
+              analysisResult.risk_level === 'high' ? 'text-red-600' :
+              analysisResult.risk_level === 'medium' ? 'text-yellow-600' :
+              'text-green-600'
+            }`}>
+              Analysis completed using backend API - authenticated request
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <div className="bg-gray-50 p-3 rounded-lg">
+              <h4 className="font-semibold text-gray-700 mb-2 text-sm">🔍 Analysis</h4>
+              <div className="text-sm text-gray-600 break-words bg-white p-2 rounded border">
+                <pre className="whitespace-pre-wrap font-sans text-xs">
+                  {analysisResult.analysis}
+                </pre>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 p-3 rounded-lg">
+              <h4 className="font-semibold text-gray-700 mb-2 text-sm">💡 Recommended Action</h4>
+              <div className="text-sm text-gray-600 break-words bg-white p-2 rounded border">
+                <pre className="whitespace-pre-wrap font-sans text-xs">
+                  {analysisResult.recommended_action}
+                </pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {websiteData ? (
         <div className="space-y-4">

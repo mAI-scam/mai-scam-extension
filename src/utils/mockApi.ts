@@ -1,12 +1,14 @@
-// Mock API for scam analysis
-export interface AnalysisRequest {
+// Mock API for scam analysis - FOR REFERENCE ONLY
+// These interfaces and mock data are kept for documentation purposes
+// The actual implementation is now in backendApi.ts
+export interface MockAnalysisRequest {
   title: string;
   content: string;
   from_email: string;
   target_language: string;
 }
 
-export interface AnalysisResponse {
+export interface MockAnalysisResponse {
   code: number;
   message: string;
   success: boolean;
@@ -94,21 +96,6 @@ const MOCK_RESPONSES: Record<string, { risk_level: string; analysis: string; rec
   }
 };
 
-// Mock scam analysis API call
-export async function analyzeEmail(request: AnalysisRequest): Promise<AnalysisResponse> {
-  // Simulate API delay
-  await new Promise(resolve => setTimeout(resolve, 1500));
-
-  const { target_language } = request;
-  const response = MOCK_RESPONSES[target_language] || MOCK_RESPONSES['en']; // Fallback to English
-
-  return {
-    code: 200,
-    message: 'Success',
-    success: true,
-    data: {
-      email_id: '2078fabfaa02441cbcd4d43fe2acfe6d',
-      [target_language]: response
-    }
-  };
-}
+// Note: analyzeEmail function has been moved to backendApi.ts to avoid duplicate exports
+// The mock responses above are kept for reference and potential future use
+// These interfaces are renamed to avoid conflicts with backendApi.ts
