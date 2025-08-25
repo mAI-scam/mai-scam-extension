@@ -33,11 +33,11 @@ export interface BackendAnalysisResponse {
 
 // Backend API configuration
 const BACKEND_CONFIG = {
-  // Use localhost for debugging
-  baseUrl: 'http://localhost:8000',
+  // Use deployed API as primary, localhost as fallback
+  baseUrl: 'https://mai-scam-backend-uat.onrender.com',
   fallbackUrls: [
-    'http://127.0.0.1:8000',
-    'https://mai-scam-backend-uat.onrender.com'
+    'http://localhost:8000',
+    'http://127.0.0.1:8000'
   ],
   endpoints: {
     emailAnalyze: '/email/v1/analyze',
