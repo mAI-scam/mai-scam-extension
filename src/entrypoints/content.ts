@@ -1215,7 +1215,7 @@ export default defineContentScript({
         </div>
         <p style="margin: 0; font-size: 14px; opacity: 0.9;">
           Facebook post data has been extracted.<br/>
-          <strong>Please reopen the extension popup to view the results!</strong>
+          <strong>The extension sidebar will update automatically!</strong>
         </p>
       `;
 
