@@ -41,7 +41,7 @@ const BACKEND_CONFIG = {
   ],
   endpoints: {
     emailAnalyze: '/email/v2/analyze',
-    websiteAnalyze: '/website/v1/analyze',
+    websiteAnalyze: '/website/v2/analyze',
     health: '/email/',
     createApiKey: '/auth/api-key',
     createToken: '/auth/token'

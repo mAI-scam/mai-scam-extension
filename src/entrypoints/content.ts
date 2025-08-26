@@ -35,6 +35,39 @@ export default defineContentScript({
         author?: string;
         domain: string;
         favicon?: string;
+        ssl?: {
+          isSecure: boolean;
+          protocol: string;
+        };
+        security?: {
+          hasCSP?: boolean;
+          hasXFrameOptions?: boolean;
+          hasHSTS?: boolean;
+          hasXSSProtection?: boolean;
+        };
+        seo?: {
+          canonical?: string;
+          robots?: string;
+          viewport?: string;
+        };
+        social?: {
+          ogTitle?: string;
+          ogDescription?: string;
+          ogImage?: string;
+          ogUrl?: string;
+          twitterCard?: string;
+        };
+        technical?: {
+          charset?: string;
+          generator?: string;
+          language?: string;
+          httpEquiv?: string[];
+        };
+        links?: {
+          externalLinksCount: number;
+          suspiciousLinks: string[];
+          socialMediaLinks: string[];
+        };
       };
     }
 
@@ -564,46 +597,133 @@ export default defineContentScript({
       }
     }
 
-    // Function to extract website data with DOM parsing instead of screenshots
+    // Function to extract website data with enhanced metadata extraction
     async function extractWebsiteData(): Promise<WebsiteData | null> {
       try {
-        console.log('Starting website data extraction...');
+        console.log('Starting enhanced website data extraction...');
         
         // Get basic page information
         const url = window.location.href;
         const title = document.title || 'No title';
         const domain = window.location.hostname;
         
-        // Extract metadata
+        // Extract enhanced metadata
         const metadata: WebsiteData['metadata'] = {
           domain: domain,
         };
         
-        // Get meta description
+        // Basic metadata
         const descriptionMeta = document.querySelector('meta[name="description"]') as HTMLMetaElement;
         if (descriptionMeta?.content) {
           metadata.description = descriptionMeta.content;
         }
         
-        // Get meta keywords
         const keywordsMeta = document.querySelector('meta[name="keywords"]') as HTMLMetaElement;
         if (keywordsMeta?.content) {
           metadata.keywords = keywordsMeta.content;
         }
         
-        // Get meta author
         const authorMeta = document.querySelector('meta[name="author"]') as HTMLMetaElement;
         if (authorMeta?.content) {
           metadata.author = authorMeta.content;
         }
         
-        // Get favicon
         const faviconLink = document.querySelector('link[rel*="icon"]') as HTMLLinkElement;
         if (faviconLink?.href) {
           metadata.favicon = faviconLink.href;
         }
+
+        // SSL Information
+        metadata.ssl = {
+          isSecure: window.location.protocol === 'https:',
+          protocol: window.location.protocol
+        };
+
+        // Security Headers (limited to what we can detect from DOM)
+        metadata.security = {
+          hasCSP: !!document.querySelector('meta[http-equiv="Content-Security-Policy"]'),
+          hasXFrameOptions: !!document.querySelector('meta[http-equiv="X-Frame-Options"]'),
+          hasHSTS: !!document.querySelector('meta[http-equiv="Strict-Transport-Security"]'),
+          hasXSSProtection: !!document.querySelector('meta[http-equiv="X-XSS-Protection"]')
+        };
+
+        // SEO Metadata
+        metadata.seo = {};
         
-        // Extract DOM text content instead of screenshot
+        const canonicalLink = document.querySelector('link[rel="canonical"]') as HTMLLinkElement;
+        if (canonicalLink?.href) {
+          metadata.seo.canonical = canonicalLink.href;
+        }
+        
+        const robotsMeta = document.querySelector('meta[name="robots"]') as HTMLMetaElement;
+        if (robotsMeta?.content) {
+          metadata.seo.robots = robotsMeta.content;
+        }
+        
+        const viewportMeta = document.querySelector('meta[name="viewport"]') as HTMLMetaElement;
+        if (viewportMeta?.content) {
+          metadata.seo.viewport = viewportMeta.content;
+        }
+
+        // Social Media Metadata (Open Graph, Twitter)
+        metadata.social = {};
+        
+        const ogTitle = document.querySelector('meta[property="og:title"]') as HTMLMetaElement;
+        if (ogTitle?.content) {
+          metadata.social.ogTitle = ogTitle.content;
+        }
+        
+        const ogDescription = document.querySelector('meta[property="og:description"]') as HTMLMetaElement;
+        if (ogDescription?.content) {
+          metadata.social.ogDescription = ogDescription.content;
+        }
+        
+        const ogImage = document.querySelector('meta[property="og:image"]') as HTMLMetaElement;
+        if (ogImage?.content) {
+          metadata.social.ogImage = ogImage.content;
+        }
+        
+        const ogUrl = document.querySelector('meta[property="og:url"]') as HTMLMetaElement;
+        if (ogUrl?.content) {
+          metadata.social.ogUrl = ogUrl.content;
+        }
+        
+        const twitterCard = document.querySelector('meta[name="twitter:card"]') as HTMLMetaElement;
+        if (twitterCard?.content) {
+          metadata.social.twitterCard = twitterCard.content;
+        }
+
+        // Technical Metadata
+        metadata.technical = {};
+        
+        const charsetMeta = document.querySelector('meta[charset]') as HTMLMetaElement;
+        if (charsetMeta?.getAttribute('charset')) {
+          metadata.technical.charset = charsetMeta.getAttribute('charset');
+        }
+        
+        const generatorMeta = document.querySelector('meta[name="generator"]') as HTMLMetaElement;
+        if (generatorMeta?.content) {
+          metadata.technical.generator = generatorMeta.content;
+        }
+        
+        const languageMeta = document.querySelector('meta[name="language"]') as HTMLMetaElement || 
+                            document.querySelector('html[lang]') as HTMLHtmlElement;
+        if (languageMeta) {
+          metadata.technical.language = languageMeta.getAttribute('content') || languageMeta.getAttribute('lang') || undefined;
+        }
+        
+        // Collect all http-equiv meta tags
+        const httpEquivMetas = document.querySelectorAll('meta[http-equiv]');
+        if (httpEquivMetas.length > 0) {
+          metadata.technical.httpEquiv = Array.from(httpEquivMetas).map(meta => 
+            `${meta.getAttribute('http-equiv')}: ${meta.getAttribute('content')}`
+          ).filter(Boolean);
+        }
+
+        // Link Analysis for suspicious activity
+        metadata.links = await extractLinkMetadata(domain);
+        
+        // Extract DOM text content
         let content = '';
         try {
           content = await extractPageContent();
@@ -619,7 +739,7 @@ export default defineContentScript({
           metadata
         };
         
-        console.log('=== Website Extraction Complete ===');
+        console.log('=== Enhanced Website Extraction Complete ===');
         console.log('Final result:', {
           ...result,
           content: content ? `[Content extracted: ${content.length} chars] ${content.substring(0, 100)}...` : '[No content]'
@@ -627,14 +747,108 @@ export default defineContentScript({
         console.log('URL:', url);
         console.log('Title:', title);
         console.log('Domain:', domain);
-        console.log('Metadata:', metadata);
-        console.log('================================');
+        console.log('Enhanced Metadata:', metadata);
+        console.log('SSL Info:', metadata.ssl);
+        console.log('Security Headers:', metadata.security);
+        console.log('Social Metadata:', metadata.social);
+        console.log('Link Analysis:', metadata.links);
+        console.log('============================================');
         
         return result;
       } catch (error) {
         console.error('Error extracting website data:', error);
         return null;
       }
+    }
+
+    // Function to extract and analyze links for security assessment
+    async function extractLinkMetadata(currentDomain: string): Promise<{
+      externalLinksCount: number;
+      suspiciousLinks: string[];
+      socialMediaLinks: string[];
+    }> {
+      const links = document.querySelectorAll('a[href]');
+      const linkData = {
+        externalLinksCount: 0,
+        suspiciousLinks: [] as string[],
+        socialMediaLinks: [] as string[]
+      };
+
+      // Known social media domains
+      const socialMediaDomains = [
+        'facebook.com', 'twitter.com', 'instagram.com', 'linkedin.com', 
+        'youtube.com', 'tiktok.com', 'snapchat.com', 'pinterest.com',
+        'telegram.org', 'whatsapp.com', 'wechat.com', 'line.me'
+      ];
+
+      // Suspicious patterns in URLs
+      const suspiciousPatterns = [
+        /bit\.ly|tinyurl|t\.co|short|url|redirect/i,  // URL shorteners
+        /[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/,  // Direct IP addresses
+        /urgent|immediate|act.now|limited.time|expire|verify.account/i,  // Urgency words
+        /.tk$|.ml$|.ga$|.cf$/i,  // Free TLDs often used for scams
+        /phishing|malware|suspicious/i  // Direct suspicious terms
+      ];
+
+      for (const link of links) {
+        const href = link.getAttribute('href');
+        if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) {
+          continue;
+        }
+
+        try {
+          let linkUrl: URL;
+          
+          // Handle relative URLs
+          if (href.startsWith('/') || href.startsWith('./') || href.startsWith('../')) {
+            linkUrl = new URL(href, window.location.origin);
+          } else if (!href.startsWith('http')) {
+            linkUrl = new URL(href, window.location.href);
+          } else {
+            linkUrl = new URL(href);
+          }
+
+          const linkDomain = linkUrl.hostname.toLowerCase();
+
+          // Count external links
+          if (linkDomain !== currentDomain && !linkDomain.endsWith(`.${currentDomain}`)) {
+            linkData.externalLinksCount++;
+          }
+
+          // Check for social media links
+          for (const socialDomain of socialMediaDomains) {
+            if (linkDomain.includes(socialDomain)) {
+              linkData.socialMediaLinks.push(href);
+              break;
+            }
+          }
+
+          // Check for suspicious patterns
+          for (const pattern of suspiciousPatterns) {
+            if (pattern.test(href) || pattern.test(linkDomain)) {
+              linkData.suspiciousLinks.push(href);
+              break;
+            }
+          }
+
+        } catch (error) {
+          // Invalid URL, might be suspicious
+          if (href.length > 10) {  // Ignore very short invalid hrefs
+            linkData.suspiciousLinks.push(href);
+          }
+        }
+      }
+
+      // Limit arrays to prevent overwhelming the analysis
+      if (linkData.suspiciousLinks.length > 10) {
+        linkData.suspiciousLinks = linkData.suspiciousLinks.slice(0, 10);
+      }
+      if (linkData.socialMediaLinks.length > 5) {
+        linkData.socialMediaLinks = linkData.socialMediaLinks.slice(0, 5);
+      }
+
+      console.log('Link analysis completed:', linkData);
+      return linkData;
     }
 
     // Function to extract meaningful page content from DOM
@@ -1354,7 +1568,7 @@ export default defineContentScript({
     }
 
     // Function to create and show analysis modal on the website
-    function showAnalysisModal(result: any, loading: boolean = false) {
+    function showAnalysisModal(result: any, loading: boolean = false, analysisType: 'email' | 'website' = 'email') {
       // Remove existing modal if any
       const existingModal = document.getElementById('maiscam-analysis-modal');
       if (existingModal) {
@@ -1467,7 +1681,7 @@ export default defineContentScript({
         
         const loadingText = document.createElement('p');
         loadingText.style.cssText = 'color: #6b7280; margin: 0;';
-        loadingText.textContent = 'Analyzing email...';
+        loadingText.textContent = analysisType === 'email' ? 'Analyzing email...' : 'Analyzing website...';
         
         loadingDiv.appendChild(spinner);
         loadingDiv.appendChild(loadingText);
@@ -1932,7 +2146,7 @@ export default defineContentScript({
         }
       } else if (message.type === 'SHOW_ANALYSIS_MODAL') {
         console.log('Showing analysis modal on website:', message.result);
-        showAnalysisModal(message.result, message.loading || false);
+        showAnalysisModal(message.result, message.loading || false, message.analysisType || 'email');
         sendResponse({ success: true });
       } else if (message.type === 'SHOW_ANALYSIS_ERROR') {
         console.log('Showing analysis error modal on website:', message.error);
