@@ -13,7 +13,8 @@ export default defineConfig({
       'activeTab',
       'tabs',
       'scripting',
-      'storage'
+      'storage',
+      'sidePanel'
     ],
     host_permissions: [
       '*://mail.google.com/*',
@@ -22,6 +23,12 @@ export default defineConfig({
     ],
     content_security_policy: {
       extension_pages: "script-src 'self'; object-src 'self'"
+    },
+    side_panel: {
+      default_path: 'sidepanel.html'
+    },
+    action: {
+      default_title: 'mAIscam - Open Sidebar'
     }
   },
 });

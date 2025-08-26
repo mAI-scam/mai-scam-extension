@@ -4,6 +4,16 @@ export default defineBackground(() => {
   // Store the latest Gmail data
   let latestGmailData: any = null;
 
+  // Handle action icon click to open side panel
+  browser.action.onClicked.addListener(async (tab) => {
+    console.log('Extension icon clicked, opening side panel');
+    try {
+      await browser.sidePanel.open({ tabId: tab.id });
+    } catch (error) {
+      console.error('Failed to open side panel:', error);
+    }
+  });
+
   // Listen for messages from content script and popup
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log('Background received message:', message);
