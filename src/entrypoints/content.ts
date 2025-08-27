@@ -1728,375 +1728,425 @@ export default defineContentScript({
           return undefined;
         }
 
-        // Find all engagement-related elements first
-        console.log('Searching for engagement-related elements...');
-        const allEngagementElements = postElement.querySelectorAll('*');
-        let engagementCandidates = [];
+        // Facebook engagement metrics extraction - completely rewritten for accuracy
+        console.log('🔍 Starting DEEP engagement metrics extraction...');
+        console.log('🏗️ Post element structure:', postElement);
         
-        for (const element of allEngagementElements) {
-          const text = element.textContent?.toLowerCase() || '';
-          const ariaLabel = element.getAttribute('aria-label')?.toLowerCase() || '';
-          const role = element.getAttribute('role') || '';
+        // Step 1: Map the entire DOM structure for debugging
+        const allElementsWithText = postElement.querySelectorAll('*');
+        const debugElements = [];
+        
+        for (const el of allElementsWithText) {
+          const text = el.textContent?.trim() || '';
+          const ariaLabel = el.getAttribute('aria-label') || '';
+          const role = el.getAttribute('role') || '';
+          const dataTestId = el.getAttribute('data-testid') || '';
           
-          // Look for engagement keywords
-          const hasEngagementKeywords = text.includes('like') || text.includes('comment') || 
-                                      text.includes('share') || text.includes('reaction') ||
-                                      ariaLabel.includes('like') || ariaLabel.includes('comment') || 
-                                      ariaLabel.includes('share') || ariaLabel.includes('reaction');
-          
-          // Look for elements that might contain numbers
-          const hasNumbers = /\d/.test(text) || /\d/.test(ariaLabel);
-          
-          if ((hasEngagementKeywords || role === 'button') && hasNumbers) {
-            engagementCandidates.push({
-              element,
-              text: element.textContent?.trim(),
-              ariaLabel: element.getAttribute('aria-label'),
-              role: role
+          // Only log elements that might be relevant
+          if (text || ariaLabel || role || dataTestId) {
+            debugElements.push({
+              tagName: el.tagName,
+              text: text.length > 50 ? text.substring(0, 50) + '...' : text,
+              ariaLabel: ariaLabel.length > 50 ? ariaLabel.substring(0, 50) + '...' : ariaLabel,
+              role,
+              dataTestId,
+              hasNumbers: /\d/.test(text) || /\d/.test(ariaLabel),
+              classes: el.className
             });
           }
         }
         
-        console.log(`Found ${engagementCandidates.length} engagement candidate elements:`, engagementCandidates);
-
-        // Extract reactions/likes count - enhanced selectors
-        const reactionSelectors = [
-          // Modern Facebook reaction selectors
-          '[data-testid="reactions-count"]',
-          '[data-testid="UFI2ReactionsCount/root"]',
-          '[data-testid="like-count"]',
-          '[data-testid="reaction-count"]',
+        console.log('🗺️ All potential elements in post:', debugElements.filter(el => el.hasNumbers || el.role || el.ariaLabel.includes('like') || el.ariaLabel.includes('comment') || el.ariaLabel.includes('share')));
+        
+        // Step 2: Find the reaction count area (usually appears above the engagement buttons)
+        console.log('🔍 Searching for reaction count indicators...');
+        let reactionsFound = false;
+        
+        // Look for elements that contain reaction emojis or summaries
+        const allTextElements = postElement.querySelectorAll('span, div, a');
+        for (const element of allTextElements) {
+          const text = element.textContent?.trim() || '';
+          const ariaLabel = element.getAttribute('aria-label') || '';
           
-          // Aria-label patterns
-          '[aria-label*="reaction" i]',
-          '[aria-label*="like" i]',
-          '[aria-label*="Love" i]',
-          '[aria-label*="Haha" i]',
-          '[aria-label*="Wow" i]',
-          '[aria-label*="Sad" i]',
-          '[aria-label*="Angry" i]',
+          // Check for reaction emoji patterns (👍❤️😆😮😢😡) followed by counts
+          const hasReactionEmojis = /[👍❤️😆😮😢😡🥰😍]/.test(text) || /[👍❤️😆😮😢😡🥰😍]/.test(ariaLabel);
           
-          // Legacy selectors
-          '._3t53 ._81j',
-          '._1g06',
-          '.UFILikeSentence',
-          '._4arz',
-          
-          // Role-based selectors
-          'div[role="button"]',
-          'span[role="button"]',
-          'a[role="button"]',
-          
-          // Text-based patterns (broader)
-          '*:contains("Like")',
-          '*:contains("like")',
-          
-          // Alternative patterns
-          '._3t53 span',
-          '._4arz span',
-          '.x1yztbdb span'
-        ];
-
-        for (const selector of reactionSelectors) {
-          try {
-            const elements = postElement.querySelectorAll(selector);
-            for (const element of elements) {
-              const ariaLabel = element.getAttribute('aria-label');
-              const textContent = element.textContent?.trim();
+          if (hasReactionEmojis) {
+            console.log('😀 Found reaction emoji element:', { text, ariaLabel, element });
+            
+            // Look for numbers in the same element or nearby
+            const numberInSame = (text + ' ' + ariaLabel).match(/(\d+(?:,\d+)*)/);
+            if (numberInSame) {
+              const count = parseEngagementCount(numberInSame[1]);
+              engagement_metrics.reactions = count;
+              engagement_metrics.likes = count;
+              console.log(`✅ Reactions found via emoji: ${count}`);
+              reactionsFound = true;
+              break;
+            }
+            
+            // Check parent and sibling elements for numbers
+            const parent = element.parentElement;
+            const siblings = parent ? Array.from(parent.children) : [];
+            
+            for (const sibling of siblings) {
+              const siblingText = sibling.textContent?.trim() || '';
+              const siblingAria = sibling.getAttribute('aria-label') || '';
+              const numberInSibling = (siblingText + ' ' + siblingAria).match(/(\d+(?:,\d+)*)/);
               
-              console.log(`Checking reaction element with selector: ${selector}`, { ariaLabel, textContent });
-              
-              // Check aria-label for reaction count
-              if (ariaLabel) {
-                const reactionMatch = ariaLabel.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?\s*(?:reaction|like|love|haha|wow|sad|angry)/i);
-                if (reactionMatch) {
-                  engagement_metrics.reactions = parseEngagementCount(reactionMatch[1]);
-                  console.log(`✅ Reactions found in aria-label: ${reactionMatch[1]} -> ${engagement_metrics.reactions}`);
-                  break;
-                }
-                
-                // Also check for just numbers with reactions context
-                if (ariaLabel.toLowerCase().includes('like') || ariaLabel.toLowerCase().includes('reaction')) {
-                  const numberMatch = ariaLabel.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?/i);
-                  if (numberMatch) {
-                    engagement_metrics.reactions = parseEngagementCount(numberMatch[1]);
-                    console.log(`✅ Reactions found in aria-label (number): ${numberMatch[1]} -> ${engagement_metrics.reactions}`);
-                    break;
-                  }
-                }
+              if (numberInSibling && !siblingText.toLowerCase().includes('comment') && !siblingText.toLowerCase().includes('share')) {
+                const count = parseEngagementCount(numberInSibling[1]);
+                engagement_metrics.reactions = count;
+                engagement_metrics.likes = count;
+                console.log(`✅ Reactions found near emoji in sibling: ${count} from "${siblingText}"`);
+                reactionsFound = true;
+                break;
               }
+            }
+            if (reactionsFound) break;
+          }
+        }
+        
+        // Step 3: Look for engagement action buttons/links
+        console.log('🔍 Searching for engagement buttons...');
+        const engagementButtons = postElement.querySelectorAll('div[role="button"], span[role="button"], a[role="button"], a[href*="comment"], a[href*="like"], a[href*="share"]');
+        
+        const buttonAnalysis = [];
+        for (const button of engagementButtons) {
+          const text = button.textContent?.trim() || '';
+          const ariaLabel = button.getAttribute('aria-label') || '';
+          const href = button.getAttribute('href') || '';
+          
+          buttonAnalysis.push({
+            text,
+            ariaLabel,
+            href,
+            element: button,
+            type: 'button'
+          });
+        }
+        
+        console.log('🎯 Engagement button analysis:', buttonAnalysis);
+
+        // Step 4: Extract reactions using multiple strategies
+        console.log('👍 Extracting reactions using systematic approach...');
+        
+        if (!reactionsFound) {
+          // Strategy 1: Look for aria-labels with reaction descriptions
+          for (const button of buttonAnalysis) {
+            const { ariaLabel, text } = button;
+            
+            if (ariaLabel) {
+              // Facebook uses patterns like "Like: 2" or "2 people reacted to this"
+              const reactionPatterns = [
+                /like:\s*(\d+)/i,
+                /(\d+)\s*people?\s*reacted/i,
+                /(\d+)\s*reaction/i,
+                /you and (\d+) others? like/i,
+                /(\d+)\s*like/i
+              ];
               
-              // Check text content for numbers
-              if (textContent && /\d/.test(textContent)) {
-                // Check if this looks like a reaction/like button
-                const parentText = element.parentElement?.textContent?.toLowerCase() || '';
-                const isLikeContext = textContent.toLowerCase().includes('like') || 
-                                    parentText.includes('like') || 
-                                    parentText.includes('reaction');
-                
-                if (isLikeContext) {
-                  const count = parseEngagementCount(textContent);
-                  if (count !== undefined && count > 0) {
+              for (const pattern of reactionPatterns) {
+                const match = ariaLabel.match(pattern);
+                if (match) {
+                  const count = parseEngagementCount(match[1]);
+                  if (count !== undefined) {
                     engagement_metrics.reactions = count;
-                    console.log(`✅ Reactions found in text: ${textContent} -> ${engagement_metrics.reactions}`);
+                    engagement_metrics.likes = count;
+                    console.log(`✅ Reactions found in button aria-label: "${ariaLabel}" -> ${count}`);
+                    reactionsFound = true;
                     break;
                   }
                 }
               }
+              if (reactionsFound) break;
             }
-            if (engagement_metrics.reactions !== undefined) break;
-          } catch (e) {
-            console.log(`Reaction selector ${selector} failed:`, e);
           }
         }
-
-        // If no reactions found, check candidates
-        if (engagement_metrics.reactions === undefined) {
-          console.log('No reactions found with selectors, checking candidates...');
-          for (const candidate of engagementCandidates) {
-            const { text, ariaLabel } = candidate;
+        
+        // Strategy 2: Look for clickable reaction summary areas
+        if (!reactionsFound) {
+          console.log('🔍 Looking for clickable reaction summaries...');
+          const clickableElements = postElement.querySelectorAll('[role="button"], a, [tabindex]');
+          
+          for (const element of clickableElements) {
+            const text = element.textContent?.trim() || '';
+            const ariaLabel = element.getAttribute('aria-label') || '';
             
-            const sources = [text, ariaLabel].filter(Boolean);
-            for (const source of sources) {
-              if (source.toLowerCase().includes('like') || source.toLowerCase().includes('reaction')) {
-                const numberMatch = source.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?/i);
-                if (numberMatch) {
-                  engagement_metrics.reactions = parseEngagementCount(numberMatch[1]);
-                  console.log(`✅ Reactions found in candidate: ${numberMatch[1]} -> ${engagement_metrics.reactions} from "${source}"`);
+            // Look for reaction emoji patterns with numbers
+            if (/[👍❤️😆😮😢😡🥰😍]/.test(text) || /[👍❤️😆😮😢😡🥰😍]/.test(ariaLabel)) {
+              // Check for numbers in text or aria-label
+              const numberMatch = (text + ' ' + ariaLabel).match(/(\d+(?:,\d+)*)/);
+              if (numberMatch) {
+                const count = parseEngagementCount(numberMatch[1]);
+                if (count !== undefined) {
+                  engagement_metrics.reactions = count;
+                  engagement_metrics.likes = count;
+                  console.log(`✅ Reactions found in clickable emoji area: "${text || ariaLabel}" -> ${count}`);
+                  reactionsFound = true;
                   break;
                 }
               }
             }
-            if (engagement_metrics.reactions !== undefined) break;
-          }
-        }
-
-        // Extract comments count - enhanced approach
-        const commentSelectors = [
-          // Modern Facebook comment selectors
-          '[data-testid="comments-count"]',
-          '[data-testid="UFI2CommentsCount/root"]',
-          '[data-testid="comment-count"]',
-          
-          // Aria-label patterns
-          '[aria-label*="comment" i]',
-          '[aria-label*="Comment" i]',
-          
-          // Legacy selectors
-          '._3t53 ._4arz',
-          '.UFICommentLink',
-          '.UFICommentBodySpan',
-          '._4arz',
-          
-          // Role-based selectors
-          'div[role="button"]',
-          'span[role="button"]',
-          'a[role="button"]',
-          
-          // Text-based patterns
-          '*:contains("Comment")',
-          '*:contains("comment")',
-          
-          // Alternative patterns
-          '._3t53 a[href*="comment"]',
-          '.x1yztbdb span'
-        ];
-
-        for (const selector of commentSelectors) {
-          try {
-            const elements = postElement.querySelectorAll(selector);
-            for (const element of elements) {
-              const ariaLabel = element.getAttribute('aria-label');
-              const textContent = element.textContent?.trim();
-              
-              console.log(`Checking comment element with selector: ${selector}`, { ariaLabel, textContent });
-              
-              // Check aria-label for comment count
-              if (ariaLabel) {
-                const commentMatch = ariaLabel.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?\s*comment/i);
-                if (commentMatch) {
-                  engagement_metrics.comments = parseEngagementCount(commentMatch[1]);
-                  console.log(`✅ Comments found in aria-label: ${commentMatch[1]} -> ${engagement_metrics.comments}`);
-                  break;
-                }
-                
-                // Also check for just numbers with comment context
-                if (ariaLabel.toLowerCase().includes('comment')) {
-                  const numberMatch = ariaLabel.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?/i);
-                  if (numberMatch) {
-                    engagement_metrics.comments = parseEngagementCount(numberMatch[1]);
-                    console.log(`✅ Comments found in aria-label (number): ${numberMatch[1]} -> ${engagement_metrics.comments}`);
-                    break;
-                  }
-                }
-              }
-              
-              // Check text content for comment count patterns
-              if (textContent) {
-                const parentText = element.parentElement?.textContent?.toLowerCase() || '';
-                const isCommentContext = textContent.toLowerCase().includes('comment') || 
-                                       parentText.includes('comment');
-                
-                if (isCommentContext) {
-                  // Look for patterns like "5 Comments", "Comment (3)", etc.
-                  const commentMatch = textContent.match(/(?:(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?\s*comment)|(?:comment.*?(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?)/i);
-                  if (commentMatch) {
-                    const count = commentMatch[1] || commentMatch[2];
-                    engagement_metrics.comments = parseEngagementCount(count);
-                    console.log(`✅ Comments found in text: ${textContent} -> ${engagement_metrics.comments}`);
-                    break;
-                  }
-                  
-                  // Also try to extract any number if in comment context
-                  const numberMatch = textContent.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?/i);
-                  if (numberMatch) {
-                    engagement_metrics.comments = parseEngagementCount(numberMatch[1]);
-                    console.log(`✅ Comments found in text (number): ${textContent} -> ${engagement_metrics.comments}`);
-                    break;
-                  }
-                }
-              }
-            }
-            if (engagement_metrics.comments !== undefined) break;
-          } catch (e) {
-            console.log(`Comment selector ${selector} failed:`, e);
-          }
-        }
-
-        // If no comments found, check candidates
-        if (engagement_metrics.comments === undefined) {
-          for (const candidate of engagementCandidates) {
-            const { text, ariaLabel } = candidate;
             
-            const sources = [text, ariaLabel].filter(Boolean);
-            for (const source of sources) {
-              if (source.toLowerCase().includes('comment')) {
-                const numberMatch = source.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?/i);
-                if (numberMatch) {
-                  engagement_metrics.comments = parseEngagementCount(numberMatch[1]);
-                  console.log(`✅ Comments found in candidate: ${numberMatch[1]} -> ${engagement_metrics.comments} from "${source}"`);
-                  break;
-                }
-              }
+            // Check for text patterns like "You and 1 other"
+            const youAndOtherMatch = (text + ' ' + ariaLabel).match(/you and (\d+) other/i);
+            if (youAndOtherMatch) {
+              const count = parseEngagementCount(youAndOtherMatch[1]) + 1; // +1 for "you"
+              engagement_metrics.reactions = count;
+              engagement_metrics.likes = count;
+              console.log(`✅ Reactions found in "you and others": "${text || ariaLabel}" -> ${count}`);
+              reactionsFound = true;
+              break;
             }
-            if (engagement_metrics.comments !== undefined) break;
           }
         }
-
-        // Extract shares count - enhanced approach
-        const shareSelectors = [
-          // Modern Facebook share selectors
-          '[data-testid="shares-count"]',
-          '[data-testid="UFI2SharesCount/root"]',
-          '[data-testid="share-count"]',
-          
-          // Aria-label patterns
-          '[aria-label*="share" i]',
-          '[aria-label*="Share" i]',
-          
-          // Legacy selectors
-          '._3t53 ._4arz',
-          '.UFIShareLink',
-          '._4arz',
-          
-          // Role-based selectors
-          'div[role="button"]',
-          'span[role="button"]',
-          'a[role="button"]',
-          
-          // Text-based patterns
-          '*:contains("Share")',
-          '*:contains("share")',
-          
-          // Alternative patterns
-          '._4arz span',
-          '._3t53 span',
-          '.x1yztbdb span'
-        ];
-
-        for (const selector of shareSelectors) {
-          try {
-            const elements = postElement.querySelectorAll(selector);
-            for (const element of elements) {
-              const ariaLabel = element.getAttribute('aria-label');
-              const textContent = element.textContent?.trim();
-              
-              console.log(`Checking share element with selector: ${selector}`, { ariaLabel, textContent });
-              
-              // Check aria-label for share count
-              if (ariaLabel) {
-                const shareMatch = ariaLabel.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?\s*share/i);
-                if (shareMatch) {
-                  engagement_metrics.shares = parseEngagementCount(shareMatch[1]);
-                  console.log(`✅ Shares found in aria-label: ${shareMatch[1]} -> ${engagement_metrics.shares}`);
-                  break;
-                }
-                
-                // Also check for just numbers with share context
-                if (ariaLabel.toLowerCase().includes('share')) {
-                  const numberMatch = ariaLabel.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?/i);
-                  if (numberMatch) {
-                    engagement_metrics.shares = parseEngagementCount(numberMatch[1]);
-                    console.log(`✅ Shares found in aria-label (number): ${numberMatch[1]} -> ${engagement_metrics.shares}`);
-                    break;
-                  }
-                }
-              }
-              
-              // Check text content for share count patterns
-              if (textContent) {
-                const parentText = element.parentElement?.textContent?.toLowerCase() || '';
-                const isShareContext = textContent.toLowerCase().includes('share') || 
-                                     parentText.includes('share');
-                
-                if (isShareContext) {
-                  const shareMatch = textContent.match(/(?:(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?\s*share)|(?:share.*?(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?)/i);
-                  if (shareMatch) {
-                    const count = shareMatch[1] || shareMatch[2];
-                    engagement_metrics.shares = parseEngagementCount(count);
-                    console.log(`✅ Shares found in text: ${textContent} -> ${engagement_metrics.shares}`);
-                    break;
-                  }
-                  
-                  // Also try to extract any number if in share context
-                  const numberMatch = textContent.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?/i);
-                  if (numberMatch) {
-                    engagement_metrics.shares = parseEngagementCount(numberMatch[1]);
-                    console.log(`✅ Shares found in text (number): ${textContent} -> ${engagement_metrics.shares}`);
-                    break;
-                  }
-                }
-              }
-            }
-            if (engagement_metrics.shares !== undefined) break;
-          } catch (e) {
-            console.log(`Share selector ${selector} failed:`, e);
-          }
-        }
-
-        // If no shares found, check candidates
-        if (engagement_metrics.shares === undefined) {
-          for (const candidate of engagementCandidates) {
-            const { text, ariaLabel } = candidate;
+        
+        // Strategy 3: Check for standalone numbers near like buttons
+        if (!reactionsFound) {
+          console.log('🔍 Looking for numbers near like buttons...');
+          for (const button of buttonAnalysis) {
+            const { element, text, ariaLabel } = button;
             
-            const sources = [text, ariaLabel].filter(Boolean);
-            for (const source of sources) {
-              if (source.toLowerCase().includes('share')) {
-                const numberMatch = source.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?/i);
-                if (numberMatch) {
-                  engagement_metrics.shares = parseEngagementCount(numberMatch[1]);
-                  console.log(`✅ Shares found in candidate: ${numberMatch[1]} -> ${engagement_metrics.shares} from "${source}"`);
+            // Check if this is a like button
+            const isLikeButton = ariaLabel.toLowerCase().includes('like') || 
+                               text.toLowerCase().includes('like');
+            
+            if (isLikeButton) {
+              // Look for numbers in nearby elements
+              const parent = element.parentElement;
+              if (parent) {
+                const nearbyElements = Array.from(parent.querySelectorAll('span, div'));
+                for (const nearby of nearbyElements) {
+                  const nearbyText = nearby.textContent?.trim() || '';
+                  if (/^\d+$/.test(nearbyText)) {
+                    const count = parseEngagementCount(nearbyText);
+                    if (count !== undefined) {
+                      engagement_metrics.reactions = count;
+                      engagement_metrics.likes = count;
+                      console.log(`✅ Reactions found near like button: "${nearbyText}" -> ${count}`);
+                      reactionsFound = true;
+                      break;
+                    }
+                  }
+                }
+                if (reactionsFound) break;
+              }
+            }
+          }
+        }
+        
+        // Default: If no reactions found, assume 0
+        if (!reactionsFound) {
+          engagement_metrics.reactions = 0;
+          engagement_metrics.likes = 0;
+          console.log('👍 No reactions found, assuming 0');
+        }
+
+        // Step 5: Extract comments systematically
+        console.log('💬 Extracting comments systematically...');
+        
+        let commentsFound = false;
+        
+        // Strategy 1: Look for comment buttons with counts in aria-label
+        for (const button of buttonAnalysis) {
+          const { ariaLabel, text } = button;
+          
+          if (ariaLabel && ariaLabel.toLowerCase().includes('comment')) {
+            // Facebook uses patterns like "Comment: 5" or "5 comments"
+            const commentPatterns = [
+              /comment:\s*(\d+)/i,
+              /(\d+)\s*comments?/i,
+              /(\d+)\s*people?\s*commented/i
+            ];
+            
+            for (const pattern of commentPatterns) {
+              const match = ariaLabel.match(pattern);
+              if (match) {
+                const count = parseEngagementCount(match[1]);
+                if (count !== undefined) {
+                  engagement_metrics.comments = count;
+                  console.log(`✅ Comments found in button aria-label: "${ariaLabel}" -> ${count}`);
+                  commentsFound = true;
                   break;
                 }
               }
             }
-            if (engagement_metrics.shares !== undefined) break;
+            if (commentsFound) break;
           }
         }
+        
+        // Strategy 2: Look for comment links or clickable areas
+        if (!commentsFound) {
+          console.log('🔍 Looking for comment links...');
+          const commentLinks = postElement.querySelectorAll('a[href*="comment"], [role="button"]');
+          
+          for (const link of commentLinks) {
+            const text = link.textContent?.trim() || '';
+            const ariaLabel = link.getAttribute('aria-label') || '';
+            const href = link.getAttribute('href') || '';
+            
+            // Check if this is comment-related
+            const isCommentRelated = text.toLowerCase().includes('comment') || 
+                                   ariaLabel.toLowerCase().includes('comment') ||
+                                   href.includes('comment');
+            
+            if (isCommentRelated) {
+              // Look for numbers in text or aria-label
+              const numberMatch = (text + ' ' + ariaLabel).match(/(\d+(?:,\d+)*)/);
+              if (numberMatch) {
+                const count = parseEngagementCount(numberMatch[1]);
+                if (count !== undefined) {
+                  engagement_metrics.comments = count;
+                  console.log(`✅ Comments found in comment link: "${text || ariaLabel}" -> ${count}`);
+                  commentsFound = true;
+                  break;
+                }
+              }
+            }
+          }
+        }
+        
+        // Strategy 3: Look for standalone comment indicators
+        if (!commentsFound) {
+          console.log('🔍 Looking for standalone comment indicators...');
+          for (const button of buttonAnalysis) {
+            const { element, text, ariaLabel } = button;
+            
+            // Check if this is a comment button
+            const isCommentButton = ariaLabel.toLowerCase().includes('comment') || 
+                                  text.toLowerCase().includes('comment');
+            
+            if (isCommentButton) {
+              // Look for numbers in nearby elements
+              const parent = element.parentElement;
+              if (parent) {
+                const nearbyElements = Array.from(parent.querySelectorAll('span, div'));
+                for (const nearby of nearbyElements) {
+                  const nearbyText = nearby.textContent?.trim() || '';
+                  if (/^\d+$/.test(nearbyText)) {
+                    const count = parseEngagementCount(nearbyText);
+                    if (count !== undefined) {
+                      engagement_metrics.comments = count;
+                      console.log(`✅ Comments found near comment button: "${nearbyText}" -> ${count}`);
+                      commentsFound = true;
+                      break;
+                    }
+                  }
+                }
+                if (commentsFound) break;
+              }
+            }
+          }
+        }
+        
+        // Default: If no comments found, assume 0
+        if (!commentsFound) {
+          engagement_metrics.comments = 0;
+          console.log('💬 No comments found, assuming 0');
+        }
 
-        // Set likes equal to reactions if reactions were found but likes weren't
-        if (engagement_metrics.reactions !== undefined && engagement_metrics.likes === undefined) {
-          engagement_metrics.likes = engagement_metrics.reactions;
+        // Step 6: Extract shares systematically
+        console.log('🔄 Extracting shares systematically...');
+        
+        let sharesFound = false;
+        
+        // Strategy 1: Look for share buttons with counts in aria-label
+        for (const button of buttonAnalysis) {
+          const { ariaLabel, text } = button;
+          
+          if (ariaLabel && ariaLabel.toLowerCase().includes('share')) {
+            // Facebook uses patterns like "Share: 2" or "2 shares"
+            const sharePatterns = [
+              /share:\s*(\d+)/i,
+              /(\d+)\s*shares?/i,
+              /(\d+)\s*people?\s*shared/i
+            ];
+            
+            for (const pattern of sharePatterns) {
+              const match = ariaLabel.match(pattern);
+              if (match) {
+                const count = parseEngagementCount(match[1]);
+                if (count !== undefined) {
+                  engagement_metrics.shares = count;
+                  console.log(`✅ Shares found in button aria-label: "${ariaLabel}" -> ${count}`);
+                  sharesFound = true;
+                  break;
+                }
+              }
+            }
+            if (sharesFound) break;
+          }
+        }
+        
+        // Strategy 2: Look for share links or clickable areas
+        if (!sharesFound) {
+          console.log('🔍 Looking for share links...');
+          const shareLinks = postElement.querySelectorAll('a[href*="share"], [role="button"]');
+          
+          for (const link of shareLinks) {
+            const text = link.textContent?.trim() || '';
+            const ariaLabel = link.getAttribute('aria-label') || '';
+            const href = link.getAttribute('href') || '';
+            
+            // Check if this is share-related
+            const isShareRelated = text.toLowerCase().includes('share') || 
+                                 ariaLabel.toLowerCase().includes('share') ||
+                                 href.includes('share');
+            
+            if (isShareRelated) {
+              // Look for numbers in text or aria-label
+              const numberMatch = (text + ' ' + ariaLabel).match(/(\d+(?:,\d+)*)/);
+              if (numberMatch) {
+                const count = parseEngagementCount(numberMatch[1]);
+                if (count !== undefined) {
+                  engagement_metrics.shares = count;
+                  console.log(`✅ Shares found in share link: "${text || ariaLabel}" -> ${count}`);
+                  sharesFound = true;
+                  break;
+                }
+              }
+            }
+          }
+        }
+        
+        // Strategy 3: Look for standalone share indicators
+        if (!sharesFound) {
+          console.log('🔍 Looking for standalone share indicators...');
+          for (const button of buttonAnalysis) {
+            const { element, text, ariaLabel } = button;
+            
+            // Check if this is a share button
+            const isShareButton = ariaLabel.toLowerCase().includes('share') || 
+                                 text.toLowerCase().includes('share');
+            
+            if (isShareButton) {
+              // Look for numbers in nearby elements
+              const parent = element.parentElement;
+              if (parent) {
+                const nearbyElements = Array.from(parent.querySelectorAll('span, div'));
+                for (const nearby of nearbyElements) {
+                  const nearbyText = nearby.textContent?.trim() || '';
+                  if (/^\d+$/.test(nearbyText)) {
+                    const count = parseEngagementCount(nearbyText);
+                    if (count !== undefined) {
+                      engagement_metrics.shares = count;
+                      console.log(`✅ Shares found near share button: "${nearbyText}" -> ${count}`);
+                      sharesFound = true;
+                      break;
+                    }
+                  }
+                }
+                if (sharesFound) break;
+              }
+            }
+          }
+        }
+        
+        // Default: If no shares found, assume 0
+        if (!sharesFound) {
+          engagement_metrics.shares = 0;
+          console.log('🔄 No shares found, assuming 0');
         }
 
         // Filter out undefined values and only include metrics that were actually found
@@ -2107,7 +2157,11 @@ export default defineContentScript({
           }
         });
 
-        console.log('Final engagement metrics:', cleanedEngagementMetrics);
+        console.log('🎯 Final engagement metrics:', cleanedEngagementMetrics);
+        console.log('📊 Detailed breakdown:');
+        console.log(`  👍 Reactions/Likes: ${engagement_metrics.reactions || 0} (found: ${reactionsFound})`);
+        console.log(`  💬 Comments: ${engagement_metrics.comments || 0} (found: ${commentsFound})`);
+        console.log(`  🔄 Shares: ${engagement_metrics.shares || 0} (found: ${sharesFound})`);
         console.log('=== Engagement metrics extraction complete ===');
 
         // Generate post URL
