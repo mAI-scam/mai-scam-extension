@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { analyzeEmailWithBackend, analyzeWebsiteWithBackend, analyzeSocialMediaWithBackend, SocialMediaAnalysisRequest } from '../../utils/backendApi';
+import { detectSiteType, getSiteTypeDisplayName, type SiteDetectionResult } from '../../utils/urlDetection';
+import { addAnalysisToHistory } from '../../utils/storageManager';
 
 interface GmailData {
   subject: string;
@@ -98,37 +100,156 @@ function App() {
   const [scanMode, setScanMode] = useState<ScanMode>('email');
   const [facebookExtractionInProgress, setFacebookExtractionInProgress] = useState(false);
   
+  // Auto-detection state
+  const [autoDetectedSite, setAutoDetectedSite] = useState<SiteDetectionResult | null>(null);
+  const [currentTabId, setCurrentTabId] = useState<number | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<any | null>(null);
+  
   // State to store the actual data being sent to backend for debugging
   const [backendRequestData, setBackendRequestData] = useState<any>(null);
 
-  // Check for ongoing Facebook extraction when sidebar opens
+  // Initialize auto-detection and check for ongoing extractions when sidebar opens
   useEffect(() => {
-    const checkFacebookExtractionStatus = async () => {
+    const initializeAutoDetection = async () => {
       try {
+        
         const tabs = await browser.tabs.query({ active: true, currentWindow: true });
-        if (tabs[0]?.id && tabs[0].url?.includes('facebook.com')) {
-          // Check if there's an ongoing extraction
-          const response = await browser.tabs.sendMessage(tabs[0].id, { type: 'CHECK_FACEBOOK_EXTRACTION_STATUS' });
-          if (response?.inProgress) {
-            setFacebookExtractionInProgress(true);
-            setLoading(true);
-            setScanMode('social');
+        if (tabs[0]?.id && tabs[0].url) {
+          setCurrentTabId(tabs[0].id);
+          
+          // Get auto-detected site info from background script with error handling
+          try {
+            const siteInfo = await browser.runtime.sendMessage({
+              type: 'GET_SITE_DETECTION',
+              tabId: tabs[0].id
+            });
             
-            // Listen for extraction completion
-            pollForFacebookData(tabs[0].id);
-          } else if (response?.data) {
-            // Extraction completed, show the data
-            setFacebookData(response.data);
-            setScanMode('social');
+            if (siteInfo?.detection) {
+              console.log('🔍 [SIDEBAR] Auto-detected site:', siteInfo.detection);
+              setAutoDetectedSite(siteInfo.detection);
+              setScanMode(siteInfo.detection.type);
+            } else {
+              // Fallback: detect site type manually if background hasn't detected it yet
+              const detection = detectSiteType(tabs[0].url);
+              console.log('🔍 [SIDEBAR] Manual detection fallback:', detection);
+              setAutoDetectedSite(detection);
+              setScanMode(detection.type);
+            }
+          } catch (backgroundError) {
+            console.error('Failed to get site detection from background:', backgroundError);
+            // Still try manual detection as fallback
+            try {
+              const detection = detectSiteType(tabs[0].url);
+              console.log('🔍 [SIDEBAR] Emergency fallback detection:', detection);
+              setAutoDetectedSite(detection);
+              setScanMode(detection.type);
+            } catch (fallbackError) {
+              console.error('Manual detection also failed:', fallbackError);
+              setError('Failed to detect website type. Please try refreshing the page.');
+            }
+          }
+          
+          // Check for ongoing Facebook extraction specifically with error handling
+          if (tabs[0].url.includes('facebook.com')) {
+            try {
+              const response = await browser.tabs.sendMessage(tabs[0].id, { type: 'CHECK_FACEBOOK_EXTRACTION_STATUS' });
+              if (response?.inProgress) {
+                setFacebookExtractionInProgress(true);
+                setLoading(true);
+                setScanMode('social');
+                pollForFacebookData(tabs[0].id);
+              } else if (response?.data) {
+                setFacebookData(response.data);
+                setScanMode('social');
+              }
+            } catch (facebookError) {
+              console.error('Failed to check Facebook extraction status:', facebookError);
+              // Don't set error for this as it's not critical
+            }
           }
         }
       } catch (error) {
-        console.error('Error checking Facebook extraction status:', error);
+        console.error('Critical error initializing auto-detection:', error);
+        setError('Failed to initialize extension. Please try refreshing the page.');
       }
     };
 
-    checkFacebookExtractionStatus();
-  }, []);
+    initializeAutoDetection();
+    
+    // Listen for tab switches from background script
+    const handleBackgroundMessages = (message: any) => {
+      if (message.type === 'TAB_SWITCHED') {
+        console.log('🔄 [SIDEBAR] Received tab switch notification:', message);
+        handleTabSwitch(message.tabId, message.tabInfo);
+      }
+    };
+    
+    browser.runtime.onMessage.addListener(handleBackgroundMessages);
+    
+    return () => {
+      browser.runtime.onMessage.removeListener(handleBackgroundMessages);
+    };
+  }, [currentTabId]);
+
+  // Function to handle tab switch notifications from background script
+  const handleTabSwitch = async (tabId: number, tabInfo: any) => {
+    try {
+      console.log(`🔄 [SIDEBAR] Handling tab switch to ${tabId}:`, tabInfo);
+      
+      // Update current tab ID
+      setCurrentTabId(tabId);
+      
+      // Clear previous data
+      setExtractedData(null);
+      setWebsiteData(null);
+      setFacebookData(null);
+      setAnalysisResult(null);
+      setError(null);
+      setLoading(false);
+      setFacebookExtractionInProgress(false);
+      
+      if (tabInfo?.detection) {
+        // Update auto-detected site info
+        setAutoDetectedSite(tabInfo.detection);
+        setScanMode(tabInfo.detection.type);
+        
+        console.log(`🔄 [SIDEBAR] Updated detection for tab ${tabId}:`, tabInfo.detection);
+        
+        // If this is Facebook and we're switching to it, check for existing data
+        if (tabInfo.detection.type === 'social' && tabInfo.detection.platform === 'facebook') {
+          try {
+            const response = await browser.tabs.sendMessage(tabId, { type: 'CHECK_FACEBOOK_EXTRACTION_STATUS' });
+            if (response?.inProgress) {
+              setFacebookExtractionInProgress(true);
+              setLoading(true);
+              pollForFacebookData(tabId);
+            } else if (response?.data) {
+              setFacebookData(response.data);
+            }
+          } catch (error) {
+            console.error('Failed to check Facebook status on tab switch:', error);
+          }
+        }
+      } else {
+        // No detection info available, try to detect manually
+        try {
+          const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+          if (tabs[0]?.url) {
+            const detection = detectSiteType(tabs[0].url);
+            setAutoDetectedSite(detection);
+            setScanMode(detection.type);
+            console.log(`🔄 [SIDEBAR] Manual detection on tab switch:`, detection);
+          }
+        } catch (error) {
+          console.error('Failed to detect site type on tab switch:', error);
+        }
+      }
+      
+    } catch (error) {
+      console.error('Error handling tab switch:', error);
+      setError('Failed to update after tab switch. Please try refreshing.');
+    }
+  };
 
   // Function to poll for Facebook extraction completion
   const pollForFacebookData = async (tabId: number) => {
@@ -167,6 +288,8 @@ function App() {
       }
     }, 60000);
   };
+
+
 
   // Function to analyze Facebook post with backend API
   const analyzeFacebookPost = async (facebookPostData: FacebookPostData, tabId?: number) => {
@@ -601,44 +724,40 @@ function App() {
       <div className="flex-1 overflow-y-auto">
         <div className="space-y-4">
           {/* Scan Mode Selector */}
+          {/* Auto-Detection Display */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              🔍 Scan Mode
+              🤖 Auto-Detected Site Type
             </label>
-            <div className="flex bg-gray-100 rounded-lg p-1">
-              <button
-                onClick={() => setScanMode('email')}
-                disabled={loading}
-                className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                  scanMode === 'email'
-                    ? 'bg-white text-red-600 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                } disabled:cursor-not-allowed`}
-              >
-                📧 Email
-              </button>
-              <button
-                onClick={() => setScanMode('website')}
-                disabled={loading}
-                className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                  scanMode === 'website'
-                    ? 'bg-white text-red-600 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                } disabled:cursor-not-allowed`}
-              >
-                🌐 Website
-              </button>
-              <button
-                onClick={() => setScanMode('social')}
-                disabled={loading}
-                className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                  scanMode === 'social'
-                    ? 'bg-white text-red-600 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                } disabled:cursor-not-allowed`}
-              >
-                📱 Social
-              </button>
+            <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+              {autoDetectedSite ? (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-lg">
+                      {scanMode === 'email' ? '📧' : scanMode === 'website' ? '🌐' : '👥'}
+                    </span>
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">
+                        {getSiteTypeDisplayName(autoDetectedSite)}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        Confidence: {Math.round(autoDetectedSite.confidence * 100)}%
+                        {autoDetectedSite.platform && ` • ${autoDetectedSite.platform}`}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                      Manual Analysis
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center space-x-2 text-gray-500">
+                  <span className="text-lg">🔍</span>
+                  <p className="text-sm">Detecting site type...</p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -678,9 +797,9 @@ function App() {
                 ? (scanMode === 'email' ? 'Analyzing Email...' : 
                    scanMode === 'website' ? 'Analyzing Website...' : 
                    facebookExtractionInProgress ? 'Waiting for Post Selection...' : 'Starting Facebook Extraction...') 
-                : (scanMode === 'email' ? '🛡️ Analyze Email' : 
+                : (scanMode === 'email' ? `🛡️ Analyze ${autoDetectedSite?.platform === 'gmail' ? 'Gmail Email' : 'Email'}` : 
                    scanMode === 'website' ? '🛡️ Analyze Website' : 
-                   '📱 Scan Facebook Post')
+                   scanMode === 'social' && autoDetectedSite?.platform === 'facebook' ? '📱 Scan Facebook Post' : '📱 Scan Social Media')
               }
             </button>
             

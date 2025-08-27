@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { analyzeEmailWithBackend, analyzeWebsiteWithBackend } from '../../utils/backendApi';
+import { detectSiteType, getSiteTypeDisplayName, type SiteDetectionResult } from '../../utils/urlDetection';
 
 interface GmailData {
   subject: string;
@@ -58,6 +59,9 @@ function App() {
   const [scanMode, setScanMode] = useState<ScanMode>('email');
   const [facebookExtractionInProgress, setFacebookExtractionInProgress] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<any | null>(null);
+  
+  // Auto-detection state
+  const [autoDetectedSite, setAutoDetectedSite] = useState<SiteDetectionResult | null>(null);
 
   // Check for ongoing Facebook extraction when popup opens
   useEffect(() => {
