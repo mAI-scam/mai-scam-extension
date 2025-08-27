@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { analyzeEmailWithBackend, analyzeWebsiteWithBackend } from '../../utils/backendApi';
+import { analyzeEmailWithBackend, analyzeWebsiteWithBackend, analyzeSocialMediaWithBackend, SocialMediaAnalysisRequest } from '../../utils/backendApi';
 
 interface GmailData {
   subject: string;
@@ -60,6 +60,13 @@ interface FacebookPostData {
   image?: string;
   postUrl: string;
   timestamp?: string;
+  author_followers_count?: number;
+  engagement_metrics?: {
+    likes?: number;
+    comments?: number;
+    shares?: number;
+    reactions?: number;
+  };
 }
 
 // Language options with their display names
@@ -90,6 +97,9 @@ function App() {
   const [selectedLanguage, setSelectedLanguage] = useState<string>('zh');
   const [scanMode, setScanMode] = useState<ScanMode>('email');
   const [facebookExtractionInProgress, setFacebookExtractionInProgress] = useState(false);
+  
+  // State to store the actual data being sent to backend for debugging
+  const [backendRequestData, setBackendRequestData] = useState<any>(null);
 
   // Check for ongoing Facebook extraction when sidebar opens
   useEffect(() => {
@@ -127,12 +137,14 @@ function App() {
         const response = await browser.tabs.sendMessage(tabId, { type: 'CHECK_FACEBOOK_EXTRACTION_STATUS' });
         if (!response?.inProgress) {
           clearInterval(pollInterval);
-          setLoading(false);
           setFacebookExtractionInProgress(false);
           
           if (response?.data) {
             setFacebookData(response.data);
+            // Automatically analyze the extracted Facebook post with backend
+            await analyzeFacebookPost(response.data, tabId);
           } else {
+            setLoading(false);
             setError('Facebook extraction was cancelled or failed.');
           }
         }
@@ -154,6 +166,139 @@ function App() {
         setError('Facebook extraction timed out.');
       }
     }, 60000);
+  };
+
+  // Function to analyze Facebook post with backend API
+  const analyzeFacebookPost = async (facebookPostData: FacebookPostData, tabId?: number) => {
+    try {
+      console.log('📱 [SIDEBAR - ANALYZE FACEBOOK] Starting Facebook post analysis...');
+      
+      // Show loading modal on website if tabId is provided
+      if (tabId) {
+        console.log('📱 [SIDEBAR - ANALYZE FACEBOOK] Showing loading modal on website...');
+        await browser.tabs.sendMessage(tabId, { 
+          type: 'SHOW_ANALYSIS_MODAL', 
+          result: null, 
+          loading: true,
+          analysisType: 'social_media'
+        });
+      }
+
+      // Convert image to base64 if present
+      let base64Image: string | undefined = undefined;
+      if (facebookPostData.image && tabId) {
+        try {
+          console.log('📷 [SIDEBAR - ANALYZE FACEBOOK] Converting image to base64...');
+          // Use content script to convert image since it has access to the page context
+          const base64Response = await browser.tabs.sendMessage(tabId, { 
+            type: 'CONVERT_IMAGE_TO_BASE64', 
+            imageUrl: facebookPostData.image 
+          });
+          
+          if (base64Response && base64Response.success && base64Response.base64) {
+            base64Image = base64Response.base64;
+            console.log('✅ [SIDEBAR - ANALYZE FACEBOOK] Image converted to base64 successfully');
+          } else {
+            console.error('❌ [SIDEBAR - ANALYZE FACEBOOK] Content script failed to convert image:', base64Response?.error);
+          }
+        } catch (error) {
+          console.error('❌ [SIDEBAR - ANALYZE FACEBOOK] Failed to convert image to base64:', error);
+          // Continue without image if conversion fails
+        }
+      }
+
+      // Prepare social media request for backend
+      const socialMediaRequest: SocialMediaAnalysisRequest = {
+        platform: 'facebook',
+        content: facebookPostData.caption || '',
+        author_username: facebookPostData.username || '',
+        target_language: selectedLanguage,
+        image: base64Image,
+        post_url: facebookPostData.postUrl || '',
+        author_followers_count: facebookPostData.author_followers_count,
+        engagement_metrics: facebookPostData.engagement_metrics
+      };
+
+      // Store the backend request data for debugging display
+      setBackendRequestData({
+        type: 'social_media',
+        data: socialMediaRequest,
+        timestamp: new Date().toISOString()
+      });
+
+      console.log('📤 [SIDEBAR - ANALYZE FACEBOOK] Sending to backend:', JSON.stringify(socialMediaRequest, null, 2));
+
+      // Call backend API v2 for social media analysis
+      const backendResponse = await analyzeSocialMediaWithBackend(socialMediaRequest, 'ANALYZE FACEBOOK POST - SIDEBAR V2 CONTEXT');
+      
+      console.log('📥 [SIDEBAR - ANALYZE FACEBOOK] Backend response:', JSON.stringify(backendResponse, null, 2));
+
+      if (!backendResponse.success || !backendResponse.data) {
+        throw new Error('Invalid response from backend');
+      }
+
+      console.log('🔍 [SIDEBAR - ANALYZE FACEBOOK] Parsing backend response structure...');
+      console.log('📋 [SIDEBAR - ANALYZE FACEBOOK] Data keys:', Object.keys(backendResponse.data));
+
+      // Extract analysis data - social media API returns nested under language code
+      let analysisData;
+      const responseData = backendResponse.data as any; // Type assertion for social media response
+      if (responseData[selectedLanguage]) {
+        // Social media API format: data.{language_code}.{analysis_fields}
+        analysisData = responseData[selectedLanguage];
+        console.log('✅ [SIDEBAR - ANALYZE FACEBOOK] Found analysis data under language code:', selectedLanguage);
+      } else if (backendResponse.data.risk_level) {
+        // Direct format (fallback): data.{analysis_fields}
+        analysisData = backendResponse.data;
+        console.log('✅ [SIDEBAR - ANALYZE FACEBOOK] Found analysis data in direct format');
+      } else {
+        console.error('❌ [SIDEBAR - ANALYZE FACEBOOK] Could not find analysis data in response');
+        throw new Error('Analysis data not found in response');
+      }
+
+      console.log('📊 [SIDEBAR - ANALYZE FACEBOOK] Extracted analysis data:', analysisData);
+
+      // Format the analysis result
+      const analysisResult = {
+        risk_level: analysisData.risk_level,
+        analysis: analysisData.analysis || analysisData.reasons, // Handle both field names
+        recommended_action: analysisData.recommended_action,
+        detected_language: backendResponse.data.detected_language || 'auto-detected',
+        target_language: selectedLanguage,
+        target_language_name: LANGUAGE_OPTIONS.find(lang => lang.code === selectedLanguage)?.name || selectedLanguage
+      };
+
+      console.log('📋 [SIDEBAR - ANALYZE FACEBOOK] Formatted analysis result:', analysisResult);
+      
+      // Show analysis result on website if tabId is provided
+      if (tabId) {
+        console.log('📱 [SIDEBAR - ANALYZE FACEBOOK] Showing analysis result on website...');
+        await browser.tabs.sendMessage(tabId, { 
+          type: 'SHOW_ANALYSIS_MODAL', 
+          result: analysisResult, 
+          loading: false,
+          analysisType: 'social_media'
+        });
+      }
+
+      console.log('✅ [SIDEBAR - ANALYZE FACEBOOK] Facebook post analysis completed successfully');
+      
+    } catch (error: any) {
+      console.error('❌ [SIDEBAR - ANALYZE FACEBOOK] Facebook analysis error:', error);
+      
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred during analysis';
+      setError(`Facebook analysis failed: ${errorMessage}`);
+      
+      // Show error on website if tabId is provided
+      if (tabId) {
+        await browser.tabs.sendMessage(tabId, { 
+          type: 'SHOW_ANALYSIS_ERROR', 
+          error: errorMessage
+        });
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Function to analyze email for scam - identical to popup functionality
@@ -194,6 +339,13 @@ function App() {
             target_language: selectedLanguage,
             reply_to_email: gmailData.replyTo !== 'None' ? gmailData.replyTo : undefined
           };
+          
+          // Store the backend request data for debugging display
+          setBackendRequestData({
+            type: 'email',
+            data: backendRequest,
+            timestamp: new Date().toISOString()
+          });
           
           console.log('📤 [SIDEBAR - ANALYZE EMAIL] Backend request:', JSON.stringify(backendRequest, null, 2));
           
@@ -323,6 +475,13 @@ function App() {
         target_language: selectedLanguage,
         metadata: websiteData.metadata || {}
       };
+
+      // Store the backend request data for debugging display
+      setBackendRequestData({
+        type: 'website',
+        data: backendRequest,
+        timestamp: new Date().toISOString()
+      });
 
       console.log('📤 [SIDEBAR - ANALYZE WEBSITE] Sending to backend:', JSON.stringify(backendRequest, null, 2));
 
@@ -483,8 +642,8 @@ function App() {
             </div>
           </div>
 
-          {/* Language Selector - show for email and website scanning */}
-          {(scanMode === 'email' || scanMode === 'website') && (
+          {/* Language Selector - show for all scanning modes */}
+          {(scanMode === 'email' || scanMode === 'website' || scanMode === 'social') && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               🌐 Analysis Language
@@ -721,9 +880,111 @@ function App() {
                   <h3 className="font-semibold text-purple-800">Facebook Post Data Extracted</h3>
                 </div>
                 <p className="text-xs text-purple-600">
-                  Facebook post information successfully captured
+                  Facebook post information successfully captured and analyzed in{' '}
+                  <span className="font-medium">
+                    {LANGUAGE_OPTIONS.find(lang => lang.code === selectedLanguage)?.name || selectedLanguage}
+                  </span>
+                  <br />
+                  <span className="text-gray-500 mt-1">Analysis results displayed in modal on the website!</span>
                 </p>
               </div>
+
+              {/* Backend Request Data Display */}
+              {backendRequestData && backendRequestData.type === 'social_media' && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-blue-600">🔍</span>
+                    <h3 className="font-semibold text-blue-800">Data Sent to Backend</h3>
+                  </div>
+                  <p className="text-xs text-blue-600 mb-3">Complete data payload sent for analysis ({new Date(backendRequestData.timestamp).toLocaleTimeString()})</p>
+                  
+                  <div className="bg-white p-3 rounded border max-h-64 overflow-y-auto">
+                    <div className="grid grid-cols-1 gap-2 text-xs">
+                      <div className="grid grid-cols-3 gap-2 font-semibold text-gray-700 border-b pb-1">
+                        <span>Field</span>
+                        <span>Type</span>
+                        <span>Value</span>
+                      </div>
+                      
+                      <div className="grid grid-cols-3 gap-2 text-gray-600">
+                        <span className="text-blue-600 font-medium">platform</span>
+                        <span className="text-gray-500">string</span>
+                        <span className="break-words">{backendRequestData.data.platform}</span>
+                      </div>
+                      
+                      <div className="grid grid-cols-3 gap-2 text-gray-600">
+                        <span className="text-blue-600 font-medium">author_username</span>
+                        <span className="text-gray-500">string</span>
+                        <span className="break-words">{backendRequestData.data.author_username}</span>
+                      </div>
+                      
+                      <div className="grid grid-cols-3 gap-2 text-gray-600">
+                        <span className="text-blue-600 font-medium">content</span>
+                        <span className="text-gray-500">string</span>
+                        <span className="break-words">{backendRequestData.data.content?.length > 50 ? backendRequestData.data.content.substring(0, 50) + '...' : backendRequestData.data.content}</span>
+                      </div>
+                      
+                      <div className="grid grid-cols-3 gap-2 text-gray-600">
+                        <span className="text-blue-600 font-medium">target_language</span>
+                        <span className="text-gray-500">string</span>
+                        <span className="break-words">{backendRequestData.data.target_language}</span>
+                      </div>
+                      
+                      <div className="grid grid-cols-3 gap-2 text-gray-600">
+                        <span className="text-blue-600 font-medium">post_url</span>
+                        <span className="text-gray-500">string</span>
+                        <span className="break-words">{backendRequestData.data.post_url?.length > 30 ? backendRequestData.data.post_url.substring(0, 30) + '...' : backendRequestData.data.post_url}</span>
+                      </div>
+                      
+                      <div className="grid grid-cols-3 gap-2 text-gray-600">
+                        <span className="text-blue-600 font-medium">image</span>
+                        <span className="text-gray-500">string?</span>
+                        <span className="break-words">
+                          {backendRequestData.data.image ? (
+                            <span className="text-green-600">✅ Base64 encoded ({backendRequestData.data.image.length} chars)</span>
+                          ) : (
+                            <span className="text-gray-500">❌ null</span>
+                          )}
+                        </span>
+                      </div>
+                      
+                      <div className="grid grid-cols-3 gap-2 text-gray-600">
+                        <span className="text-blue-600 font-medium">author_followers_count</span>
+                        <span className="text-gray-500">number?</span>
+                        <span className="break-words">
+                          {backendRequestData.data.author_followers_count !== undefined ? (
+                            <span className="text-green-600">✅ {backendRequestData.data.author_followers_count.toLocaleString()}</span>
+                          ) : (
+                            <span className="text-red-500">❌ null (not extracted)</span>
+                          )}
+                        </span>
+                      </div>
+                      
+                      <div className="grid grid-cols-3 gap-2 text-gray-600">
+                        <span className="text-blue-600 font-medium">engagement_metrics</span>
+                        <span className="text-gray-500">object?</span>
+                        <span className="break-words">
+                          {backendRequestData.data.engagement_metrics && Object.keys(backendRequestData.data.engagement_metrics).length > 0 ? (
+                            <div className="text-xs">
+                              {Object.entries(backendRequestData.data.engagement_metrics).map(([key, value]) => (
+                                <div key={key} className="text-green-600">
+                                  ✅ {key}: {typeof value === 'number' ? value.toLocaleString() : String(value)}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-red-500">❌ null (not extracted)</span>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="mt-2 text-xs text-blue-600">
+                    <strong>API Endpoint:</strong> /socialmedia/v2/analyze
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-3">
                 <div className="bg-white p-3 rounded-lg shadow-sm border">
@@ -765,6 +1026,45 @@ function App() {
                       alt="Facebook post image" 
                       className="w-full rounded border max-h-64 object-cover"
                     />
+                  </div>
+                )}
+
+                {facebookData.author_followers_count !== undefined && (
+                  <div className="bg-white p-3 rounded-lg shadow-sm border">
+                    <h4 className="font-semibold text-gray-700 mb-2 text-sm">👥 Followers</h4>
+                    <p className="text-sm text-gray-600">{facebookData.author_followers_count.toLocaleString()}</p>
+                  </div>
+                )}
+
+                {facebookData.engagement_metrics && Object.keys(facebookData.engagement_metrics).length > 0 && (
+                  <div className="bg-white p-3 rounded-lg shadow-sm border">
+                    <h4 className="font-semibold text-gray-700 mb-2 text-sm">📊 Engagement Metrics</h4>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      {facebookData.engagement_metrics.likes !== undefined && (
+                        <div className="bg-gray-50 p-2 rounded border">
+                          <span className="font-medium text-gray-600">👍 Likes:</span>
+                          <span className="ml-1 text-gray-800">{facebookData.engagement_metrics.likes.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {facebookData.engagement_metrics.comments !== undefined && (
+                        <div className="bg-gray-50 p-2 rounded border">
+                          <span className="font-medium text-gray-600">💬 Comments:</span>
+                          <span className="ml-1 text-gray-800">{facebookData.engagement_metrics.comments.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {facebookData.engagement_metrics.shares !== undefined && (
+                        <div className="bg-gray-50 p-2 rounded border">
+                          <span className="font-medium text-gray-600">🔄 Shares:</span>
+                          <span className="ml-1 text-gray-800">{facebookData.engagement_metrics.shares.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {facebookData.engagement_metrics.reactions !== undefined && (
+                        <div className="bg-gray-50 p-2 rounded border">
+                          <span className="font-medium text-gray-600">😊 Reactions:</span>
+                          <span className="ml-1 text-gray-800">{facebookData.engagement_metrics.reactions.toLocaleString()}</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

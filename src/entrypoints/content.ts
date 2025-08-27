@@ -78,6 +78,13 @@ export default defineContentScript({
       image?: string;
       postUrl: string;
       timestamp?: string;
+      author_followers_count?: number;
+      engagement_metrics?: {
+        likes?: number;
+        comments?: number;
+        shares?: number;
+        reactions?: number;
+      };
     }
 
     // Function to extract Gmail data
@@ -1525,6 +1532,584 @@ export default defineContentScript({
           }
         }
 
+        // Extract author followers count
+        let author_followers_count = undefined;
+        console.log('=== Starting follower count extraction ===');
+        console.log('Post element for follower extraction:', postElement);
+        
+        // More comprehensive follower selectors for different Facebook layouts
+        const followerSelectors = [
+          // Modern Facebook follower count selectors
+          '[data-testid="profile-follower-count"]',
+          '[data-testid="follower-count"]',
+          '[data-testid="profile_header_follower_count"]',
+          
+          // Links to followers page
+          'a[href*="followers"]',
+          'a[href*="/followers/"]',
+          'a[href*="&sk=followers"]',
+          '.x1i10hfl[href*="followers"]',
+          'a[href*="followers"] span',
+          'a[href*="followers"] div',
+          
+          // Profile page follower indicators with various text patterns
+          'div[role="button"][aria-label*="follower" i]',
+          'span[aria-label*="follower" i]',
+          'a[aria-label*="follower" i]',
+          
+          // Profile header areas
+          '.x1yztbdb a[href*="followers"]',
+          '.profile-header a[href*="followers"]',
+          
+          // Alternative data attributes
+          '[data-testid*="follower"]',
+          '[data-testid*="follow"]',
+          
+          // Text-based searches (broader approach)
+          '*[aria-label*="follower" i]',
+          '*[title*="follower" i]',
+          
+          // Profile link areas that might contain follower info
+          'a[role="link"][href*="facebook.com"]',
+          'a[role="link"][href*="/profile/"]',
+          
+          // Generic spans/divs near profile information
+          '.x1yztbdb span',
+          '.x1yztbdb div',
+          
+          // Page header information
+          '[role="main"] a[href*="followers"]',
+          '[role="banner"] a[href*="followers"]'
+        ];
+
+        // First, try to find any element that mentions followers
+        console.log('Searching for follower-related elements...');
+        const allElements = postElement.querySelectorAll('*');
+        let followerCandidates = [];
+        
+        for (const element of allElements) {
+          const text = element.textContent?.toLowerCase() || '';
+          const ariaLabel = element.getAttribute('aria-label')?.toLowerCase() || '';
+          const title = element.getAttribute('title')?.toLowerCase() || '';
+          const href = element.getAttribute('href')?.toLowerCase() || '';
+          
+          if (text.includes('follower') || ariaLabel.includes('follower') || 
+              title.includes('follower') || href.includes('follower')) {
+            followerCandidates.push({
+              element,
+              text: element.textContent?.trim(),
+              ariaLabel: element.getAttribute('aria-label'),
+              title: element.getAttribute('title'),
+              href: element.getAttribute('href')
+            });
+          }
+        }
+        
+        console.log(`Found ${followerCandidates.length} follower candidate elements:`, followerCandidates);
+
+        // Try the specific selectors first
+        for (const selector of followerSelectors) {
+          try {
+            const element = postElement.querySelector(selector);
+            if (element) {
+              console.log(`Checking follower element with selector: ${selector}`, element);
+              
+              // Check aria-label first
+              const ariaLabel = element.getAttribute('aria-label');
+              if (ariaLabel) {
+                console.log(`Aria-label content: "${ariaLabel}"`);
+                const followerMatch = ariaLabel.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?\s*(?:follower|Follower)/i);
+                if (followerMatch) {
+                  author_followers_count = parseFollowerCount(followerMatch[1]);
+                  console.log(`✅ Followers found in aria-label: ${followerMatch[1]} -> ${author_followers_count}`);
+                  break;
+                }
+              }
+              
+              // Check text content
+              const textContent = element.textContent?.trim();
+              if (textContent) {
+                console.log(`Text content: "${textContent}"`);
+                const followerMatch = textContent.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?\s*(?:follower|Follower)/i);
+                if (followerMatch) {
+                  author_followers_count = parseFollowerCount(followerMatch[1]);
+                  console.log(`✅ Followers found in text: ${followerMatch[1]} -> ${author_followers_count}`);
+                  break;
+                }
+              }
+              
+              // Check title attribute
+              const title = element.getAttribute('title');
+              if (title) {
+                console.log(`Title attribute: "${title}"`);
+                const followerMatch = title.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?\s*(?:follower|Follower)/i);
+                if (followerMatch) {
+                  author_followers_count = parseFollowerCount(followerMatch[1]);
+                  console.log(`✅ Followers found in title: ${followerMatch[1]} -> ${author_followers_count}`);
+                  break;
+                }
+              }
+            }
+          } catch (e) {
+            console.log(`Selector ${selector} failed:`, e);
+          }
+        }
+
+        // If still no followers found, check our candidates
+        if (author_followers_count === undefined && followerCandidates.length > 0) {
+          console.log('No followers found with selectors, checking candidates...');
+          
+          for (const candidate of followerCandidates) {
+            const { element, text, ariaLabel, title, href } = candidate;
+            
+            // Check all possible text sources
+            const sources = [text, ariaLabel, title, href].filter(Boolean);
+            
+            for (const source of sources) {
+              const followerMatch = source.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?\s*(?:follower|Follower)/i);
+              if (followerMatch) {
+                author_followers_count = parseFollowerCount(followerMatch[1]);
+                console.log(`✅ Followers found in candidate: ${followerMatch[1]} -> ${author_followers_count} from "${source}"`);
+                break;
+              }
+            }
+            
+            if (author_followers_count !== undefined) break;
+          }
+        }
+
+        // Helper function to parse follower count with K/M/B notation
+        function parseFollowerCount(countStr: string): number {
+          const cleanStr = countStr.replace(/,/g, '').toLowerCase();
+          const baseNumber = parseFloat(cleanStr);
+          
+          if (cleanStr.includes('k')) {
+            return Math.round(baseNumber * 1000);
+          } else if (cleanStr.includes('m')) {
+            return Math.round(baseNumber * 1000000);
+          } else if (cleanStr.includes('b')) {
+            return Math.round(baseNumber * 1000000000);
+          } else {
+            return Math.round(baseNumber);
+          }
+        }
+
+        console.log(`Final follower count: ${author_followers_count || 'not found'}`);
+        console.log('=== Follower count extraction complete ===');
+
+        // Extract engagement metrics (likes, comments, shares, reactions)
+        let engagement_metrics = {
+          likes: undefined,
+          comments: undefined,
+          shares: undefined,
+          reactions: undefined
+        };
+        
+        console.log('=== Starting engagement metrics extraction ===');
+
+        // Function to extract numeric value from text with K/M/B notation
+        function parseEngagementCount(text: string): number | undefined {
+          if (!text) return undefined;
+          
+          const cleanText = text.replace(/[^\d.KMB]/gi, '').toLowerCase();
+          const match = cleanText.match(/(\d+(?:\.\d+)?)(k|m|b)?/i);
+          
+          if (match) {
+            const baseNumber = parseFloat(match[1]);
+            const suffix = match[2]?.toLowerCase();
+            
+            switch (suffix) {
+              case 'k': return Math.round(baseNumber * 1000);
+              case 'm': return Math.round(baseNumber * 1000000);
+              case 'b': return Math.round(baseNumber * 1000000000);
+              default: return Math.round(baseNumber);
+            }
+          }
+          return undefined;
+        }
+
+        // Find all engagement-related elements first
+        console.log('Searching for engagement-related elements...');
+        const allEngagementElements = postElement.querySelectorAll('*');
+        let engagementCandidates = [];
+        
+        for (const element of allEngagementElements) {
+          const text = element.textContent?.toLowerCase() || '';
+          const ariaLabel = element.getAttribute('aria-label')?.toLowerCase() || '';
+          const role = element.getAttribute('role') || '';
+          
+          // Look for engagement keywords
+          const hasEngagementKeywords = text.includes('like') || text.includes('comment') || 
+                                      text.includes('share') || text.includes('reaction') ||
+                                      ariaLabel.includes('like') || ariaLabel.includes('comment') || 
+                                      ariaLabel.includes('share') || ariaLabel.includes('reaction');
+          
+          // Look for elements that might contain numbers
+          const hasNumbers = /\d/.test(text) || /\d/.test(ariaLabel);
+          
+          if ((hasEngagementKeywords || role === 'button') && hasNumbers) {
+            engagementCandidates.push({
+              element,
+              text: element.textContent?.trim(),
+              ariaLabel: element.getAttribute('aria-label'),
+              role: role
+            });
+          }
+        }
+        
+        console.log(`Found ${engagementCandidates.length} engagement candidate elements:`, engagementCandidates);
+
+        // Extract reactions/likes count - enhanced selectors
+        const reactionSelectors = [
+          // Modern Facebook reaction selectors
+          '[data-testid="reactions-count"]',
+          '[data-testid="UFI2ReactionsCount/root"]',
+          '[data-testid="like-count"]',
+          '[data-testid="reaction-count"]',
+          
+          // Aria-label patterns
+          '[aria-label*="reaction" i]',
+          '[aria-label*="like" i]',
+          '[aria-label*="Love" i]',
+          '[aria-label*="Haha" i]',
+          '[aria-label*="Wow" i]',
+          '[aria-label*="Sad" i]',
+          '[aria-label*="Angry" i]',
+          
+          // Legacy selectors
+          '._3t53 ._81j',
+          '._1g06',
+          '.UFILikeSentence',
+          '._4arz',
+          
+          // Role-based selectors
+          'div[role="button"]',
+          'span[role="button"]',
+          'a[role="button"]',
+          
+          // Text-based patterns (broader)
+          '*:contains("Like")',
+          '*:contains("like")',
+          
+          // Alternative patterns
+          '._3t53 span',
+          '._4arz span',
+          '.x1yztbdb span'
+        ];
+
+        for (const selector of reactionSelectors) {
+          try {
+            const elements = postElement.querySelectorAll(selector);
+            for (const element of elements) {
+              const ariaLabel = element.getAttribute('aria-label');
+              const textContent = element.textContent?.trim();
+              
+              console.log(`Checking reaction element with selector: ${selector}`, { ariaLabel, textContent });
+              
+              // Check aria-label for reaction count
+              if (ariaLabel) {
+                const reactionMatch = ariaLabel.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?\s*(?:reaction|like|love|haha|wow|sad|angry)/i);
+                if (reactionMatch) {
+                  engagement_metrics.reactions = parseEngagementCount(reactionMatch[1]);
+                  console.log(`✅ Reactions found in aria-label: ${reactionMatch[1]} -> ${engagement_metrics.reactions}`);
+                  break;
+                }
+                
+                // Also check for just numbers with reactions context
+                if (ariaLabel.toLowerCase().includes('like') || ariaLabel.toLowerCase().includes('reaction')) {
+                  const numberMatch = ariaLabel.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?/i);
+                  if (numberMatch) {
+                    engagement_metrics.reactions = parseEngagementCount(numberMatch[1]);
+                    console.log(`✅ Reactions found in aria-label (number): ${numberMatch[1]} -> ${engagement_metrics.reactions}`);
+                    break;
+                  }
+                }
+              }
+              
+              // Check text content for numbers
+              if (textContent && /\d/.test(textContent)) {
+                // Check if this looks like a reaction/like button
+                const parentText = element.parentElement?.textContent?.toLowerCase() || '';
+                const isLikeContext = textContent.toLowerCase().includes('like') || 
+                                    parentText.includes('like') || 
+                                    parentText.includes('reaction');
+                
+                if (isLikeContext) {
+                  const count = parseEngagementCount(textContent);
+                  if (count !== undefined && count > 0) {
+                    engagement_metrics.reactions = count;
+                    console.log(`✅ Reactions found in text: ${textContent} -> ${engagement_metrics.reactions}`);
+                    break;
+                  }
+                }
+              }
+            }
+            if (engagement_metrics.reactions !== undefined) break;
+          } catch (e) {
+            console.log(`Reaction selector ${selector} failed:`, e);
+          }
+        }
+
+        // If no reactions found, check candidates
+        if (engagement_metrics.reactions === undefined) {
+          console.log('No reactions found with selectors, checking candidates...');
+          for (const candidate of engagementCandidates) {
+            const { text, ariaLabel } = candidate;
+            
+            const sources = [text, ariaLabel].filter(Boolean);
+            for (const source of sources) {
+              if (source.toLowerCase().includes('like') || source.toLowerCase().includes('reaction')) {
+                const numberMatch = source.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?/i);
+                if (numberMatch) {
+                  engagement_metrics.reactions = parseEngagementCount(numberMatch[1]);
+                  console.log(`✅ Reactions found in candidate: ${numberMatch[1]} -> ${engagement_metrics.reactions} from "${source}"`);
+                  break;
+                }
+              }
+            }
+            if (engagement_metrics.reactions !== undefined) break;
+          }
+        }
+
+        // Extract comments count - enhanced approach
+        const commentSelectors = [
+          // Modern Facebook comment selectors
+          '[data-testid="comments-count"]',
+          '[data-testid="UFI2CommentsCount/root"]',
+          '[data-testid="comment-count"]',
+          
+          // Aria-label patterns
+          '[aria-label*="comment" i]',
+          '[aria-label*="Comment" i]',
+          
+          // Legacy selectors
+          '._3t53 ._4arz',
+          '.UFICommentLink',
+          '.UFICommentBodySpan',
+          '._4arz',
+          
+          // Role-based selectors
+          'div[role="button"]',
+          'span[role="button"]',
+          'a[role="button"]',
+          
+          // Text-based patterns
+          '*:contains("Comment")',
+          '*:contains("comment")',
+          
+          // Alternative patterns
+          '._3t53 a[href*="comment"]',
+          '.x1yztbdb span'
+        ];
+
+        for (const selector of commentSelectors) {
+          try {
+            const elements = postElement.querySelectorAll(selector);
+            for (const element of elements) {
+              const ariaLabel = element.getAttribute('aria-label');
+              const textContent = element.textContent?.trim();
+              
+              console.log(`Checking comment element with selector: ${selector}`, { ariaLabel, textContent });
+              
+              // Check aria-label for comment count
+              if (ariaLabel) {
+                const commentMatch = ariaLabel.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?\s*comment/i);
+                if (commentMatch) {
+                  engagement_metrics.comments = parseEngagementCount(commentMatch[1]);
+                  console.log(`✅ Comments found in aria-label: ${commentMatch[1]} -> ${engagement_metrics.comments}`);
+                  break;
+                }
+                
+                // Also check for just numbers with comment context
+                if (ariaLabel.toLowerCase().includes('comment')) {
+                  const numberMatch = ariaLabel.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?/i);
+                  if (numberMatch) {
+                    engagement_metrics.comments = parseEngagementCount(numberMatch[1]);
+                    console.log(`✅ Comments found in aria-label (number): ${numberMatch[1]} -> ${engagement_metrics.comments}`);
+                    break;
+                  }
+                }
+              }
+              
+              // Check text content for comment count patterns
+              if (textContent) {
+                const parentText = element.parentElement?.textContent?.toLowerCase() || '';
+                const isCommentContext = textContent.toLowerCase().includes('comment') || 
+                                       parentText.includes('comment');
+                
+                if (isCommentContext) {
+                  // Look for patterns like "5 Comments", "Comment (3)", etc.
+                  const commentMatch = textContent.match(/(?:(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?\s*comment)|(?:comment.*?(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?)/i);
+                  if (commentMatch) {
+                    const count = commentMatch[1] || commentMatch[2];
+                    engagement_metrics.comments = parseEngagementCount(count);
+                    console.log(`✅ Comments found in text: ${textContent} -> ${engagement_metrics.comments}`);
+                    break;
+                  }
+                  
+                  // Also try to extract any number if in comment context
+                  const numberMatch = textContent.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?/i);
+                  if (numberMatch) {
+                    engagement_metrics.comments = parseEngagementCount(numberMatch[1]);
+                    console.log(`✅ Comments found in text (number): ${textContent} -> ${engagement_metrics.comments}`);
+                    break;
+                  }
+                }
+              }
+            }
+            if (engagement_metrics.comments !== undefined) break;
+          } catch (e) {
+            console.log(`Comment selector ${selector} failed:`, e);
+          }
+        }
+
+        // If no comments found, check candidates
+        if (engagement_metrics.comments === undefined) {
+          for (const candidate of engagementCandidates) {
+            const { text, ariaLabel } = candidate;
+            
+            const sources = [text, ariaLabel].filter(Boolean);
+            for (const source of sources) {
+              if (source.toLowerCase().includes('comment')) {
+                const numberMatch = source.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?/i);
+                if (numberMatch) {
+                  engagement_metrics.comments = parseEngagementCount(numberMatch[1]);
+                  console.log(`✅ Comments found in candidate: ${numberMatch[1]} -> ${engagement_metrics.comments} from "${source}"`);
+                  break;
+                }
+              }
+            }
+            if (engagement_metrics.comments !== undefined) break;
+          }
+        }
+
+        // Extract shares count - enhanced approach
+        const shareSelectors = [
+          // Modern Facebook share selectors
+          '[data-testid="shares-count"]',
+          '[data-testid="UFI2SharesCount/root"]',
+          '[data-testid="share-count"]',
+          
+          // Aria-label patterns
+          '[aria-label*="share" i]',
+          '[aria-label*="Share" i]',
+          
+          // Legacy selectors
+          '._3t53 ._4arz',
+          '.UFIShareLink',
+          '._4arz',
+          
+          // Role-based selectors
+          'div[role="button"]',
+          'span[role="button"]',
+          'a[role="button"]',
+          
+          // Text-based patterns
+          '*:contains("Share")',
+          '*:contains("share")',
+          
+          // Alternative patterns
+          '._4arz span',
+          '._3t53 span',
+          '.x1yztbdb span'
+        ];
+
+        for (const selector of shareSelectors) {
+          try {
+            const elements = postElement.querySelectorAll(selector);
+            for (const element of elements) {
+              const ariaLabel = element.getAttribute('aria-label');
+              const textContent = element.textContent?.trim();
+              
+              console.log(`Checking share element with selector: ${selector}`, { ariaLabel, textContent });
+              
+              // Check aria-label for share count
+              if (ariaLabel) {
+                const shareMatch = ariaLabel.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?\s*share/i);
+                if (shareMatch) {
+                  engagement_metrics.shares = parseEngagementCount(shareMatch[1]);
+                  console.log(`✅ Shares found in aria-label: ${shareMatch[1]} -> ${engagement_metrics.shares}`);
+                  break;
+                }
+                
+                // Also check for just numbers with share context
+                if (ariaLabel.toLowerCase().includes('share')) {
+                  const numberMatch = ariaLabel.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?/i);
+                  if (numberMatch) {
+                    engagement_metrics.shares = parseEngagementCount(numberMatch[1]);
+                    console.log(`✅ Shares found in aria-label (number): ${numberMatch[1]} -> ${engagement_metrics.shares}`);
+                    break;
+                  }
+                }
+              }
+              
+              // Check text content for share count patterns
+              if (textContent) {
+                const parentText = element.parentElement?.textContent?.toLowerCase() || '';
+                const isShareContext = textContent.toLowerCase().includes('share') || 
+                                     parentText.includes('share');
+                
+                if (isShareContext) {
+                  const shareMatch = textContent.match(/(?:(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?\s*share)|(?:share.*?(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?)/i);
+                  if (shareMatch) {
+                    const count = shareMatch[1] || shareMatch[2];
+                    engagement_metrics.shares = parseEngagementCount(count);
+                    console.log(`✅ Shares found in text: ${textContent} -> ${engagement_metrics.shares}`);
+                    break;
+                  }
+                  
+                  // Also try to extract any number if in share context
+                  const numberMatch = textContent.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?/i);
+                  if (numberMatch) {
+                    engagement_metrics.shares = parseEngagementCount(numberMatch[1]);
+                    console.log(`✅ Shares found in text (number): ${textContent} -> ${engagement_metrics.shares}`);
+                    break;
+                  }
+                }
+              }
+            }
+            if (engagement_metrics.shares !== undefined) break;
+          } catch (e) {
+            console.log(`Share selector ${selector} failed:`, e);
+          }
+        }
+
+        // If no shares found, check candidates
+        if (engagement_metrics.shares === undefined) {
+          for (const candidate of engagementCandidates) {
+            const { text, ariaLabel } = candidate;
+            
+            const sources = [text, ariaLabel].filter(Boolean);
+            for (const source of sources) {
+              if (source.toLowerCase().includes('share')) {
+                const numberMatch = source.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?/i);
+                if (numberMatch) {
+                  engagement_metrics.shares = parseEngagementCount(numberMatch[1]);
+                  console.log(`✅ Shares found in candidate: ${numberMatch[1]} -> ${engagement_metrics.shares} from "${source}"`);
+                  break;
+                }
+              }
+            }
+            if (engagement_metrics.shares !== undefined) break;
+          }
+        }
+
+        // Set likes equal to reactions if reactions were found but likes weren't
+        if (engagement_metrics.reactions !== undefined && engagement_metrics.likes === undefined) {
+          engagement_metrics.likes = engagement_metrics.reactions;
+        }
+
+        // Filter out undefined values and only include metrics that were actually found
+        const cleanedEngagementMetrics: { [key: string]: number } = {};
+        Object.entries(engagement_metrics).forEach(([key, value]) => {
+          if (value !== undefined) {
+            cleanedEngagementMetrics[key] = value;
+          }
+        });
+
+        console.log('Final engagement metrics:', cleanedEngagementMetrics);
+        console.log('=== Engagement metrics extraction complete ===');
+
         // Generate post URL
         let postUrl = window.location.href;
         
@@ -1549,7 +2134,9 @@ export default defineContentScript({
           caption,
           image,
           postUrl,
-          timestamp
+          timestamp,
+          author_followers_count,
+          engagement_metrics: Object.keys(cleanedEngagementMetrics).length > 0 ? cleanedEngagementMetrics : undefined
         };
 
         console.log('=== Facebook Post Extraction Complete ===');
@@ -1558,6 +2145,8 @@ export default defineContentScript({
         console.log('Caption found:', caption !== 'No caption found');
         console.log('Image found:', !!image);
         console.log('Timestamp found:', !!timestamp);
+        console.log('Follower count found:', !!author_followers_count, author_followers_count ? `(${author_followers_count})` : '');
+        console.log('Engagement metrics found:', Object.keys(cleanedEngagementMetrics).length > 0, cleanedEngagementMetrics);
         console.log('============================================');
 
         return result;
@@ -1568,7 +2157,7 @@ export default defineContentScript({
     }
 
     // Function to create and show analysis modal on the website
-    function showAnalysisModal(result: any, loading: boolean = false, analysisType: 'email' | 'website' = 'email') {
+    function showAnalysisModal(result: any, loading: boolean = false, analysisType: 'email' | 'website' | 'social_media' = 'email') {
       // Remove existing modal if any
       const existingModal = document.getElementById('maiscam-analysis-modal');
       if (existingModal) {
@@ -1681,7 +2270,9 @@ export default defineContentScript({
         
         const loadingText = document.createElement('p');
         loadingText.style.cssText = 'color: #6b7280; margin: 0;';
-        loadingText.textContent = analysisType === 'email' ? 'Analyzing email...' : 'Analyzing website...';
+        loadingText.textContent = analysisType === 'email' ? 'Analyzing email...' : 
+                                 analysisType === 'website' ? 'Analyzing website...' : 
+                                 'Analyzing social media post...';
         
         loadingDiv.appendChild(spinner);
         loadingDiv.appendChild(loadingText);
@@ -1702,14 +2293,16 @@ export default defineContentScript({
           const level = riskLevel.toLowerCase();
           
           // High risk patterns (English, Chinese, Malay, Indonesian, Vietnamese, Thai, Filipino, etc.)
-          if (level === 'high' || level === '高' || level === 'tinggi' || level === 'cao' || 
-              level === 'สูง' || level === 'mataas' || level === 'dhuwur' || level === 'luhur') {
+          if (level === 'high' || level === '高' || level === '高风险' || level === 'tinggi' || level === 'risiko tinggi' || 
+              level === 'cao' || level === 'rủi ro cao' || level === 'สูง' || level === 'ความเสี่ยงสูง' || 
+              level === 'mataas' || level === 'dhuwur' || level === 'luhur') {
             return '#dc2626'; // Darker red for high severity
           }
           
           // Medium risk patterns (English, Chinese, Malay, Indonesian, Vietnamese, Thai, Filipino, etc.)
-          if (level === 'medium' || level === '中' || level === '中等' || level === 'sederhana' || 
-              level === 'trung bình' || level === 'ปานกลาง' || level === 'katamtaman' || 
+          if (level === 'medium' || level === 'medium risk' || level === '中' || level === '中等' || level === '中等风险' || 
+              level === 'sederhana' || level === 'risiko sederhana' || level === 'trung bình' || level === 'rủi ro trung bình' || 
+              level === 'ปานกลาง' || level === 'ความเสี่ยงปานกลาง' || level === 'katamtaman' || 
               level === 'madya' || level === 'sedeng') {
             return '#d97706'; // Yellow/amber for medium
           }
@@ -1722,14 +2315,16 @@ export default defineContentScript({
           const level = riskLevel.toLowerCase();
           
           // High risk patterns
-          if (level === 'high' || level === '高' || level === 'tinggi' || level === 'cao' || 
-              level === 'สูง' || level === 'mataas' || level === 'dhuwur' || level === 'luhur') {
+          if (level === 'high' || level === '高' || level === '高风险' || level === 'tinggi' || level === 'risiko tinggi' || 
+              level === 'cao' || level === 'rủi ro cao' || level === 'สูง' || level === 'ความเสี่ยงสูง' || 
+              level === 'mataas' || level === 'dhuwur' || level === 'luhur') {
             return '#fef2f2'; // Light red background
           }
           
           // Medium risk patterns  
-          if (level === 'medium' || level === '中' || level === '中等' || level === 'sederhana' || 
-              level === 'trung bình' || level === 'ปานกลาง' || level === 'katamtaman' || 
+          if (level === 'medium' || level === 'medium risk' || level === '中' || level === '中等' || level === '中等风险' || 
+              level === 'sederhana' || level === 'risiko sederhana' || level === 'trung bình' || level === 'rủi ro trung bình' || 
+              level === 'ปานกลาง' || level === 'ความเสี่ยงปานกลาง' || level === 'katamtaman' || 
               level === 'madya' || level === 'sedeng') {
             return '#fffbeb'; // Light yellow background
           }
@@ -1742,14 +2337,16 @@ export default defineContentScript({
           const level = riskLevel.toLowerCase();
           
           // High risk patterns
-          if (level === 'high' || level === '高' || level === 'tinggi' || level === 'cao' || 
-              level === 'สูง' || level === 'mataas' || level === 'dhuwur' || level === 'luhur') {
+          if (level === 'high' || level === '高' || level === '高风险' || level === 'tinggi' || level === 'risiko tinggi' || 
+              level === 'cao' || level === 'rủi ro cao' || level === 'สูง' || level === 'ความเสี่ยงสูง' || 
+              level === 'mataas' || level === 'dhuwur' || level === 'luhur') {
             return '#fca5a5'; // Red border
           }
           
           // Medium risk patterns
-          if (level === 'medium' || level === '中' || level === '中等' || level === 'sederhana' || 
-              level === 'trung bình' || level === 'ปานกลาง' || level === 'katamtaman' || 
+          if (level === 'medium' || level === 'medium risk' || level === '中' || level === '中等' || level === '中等风险' || 
+              level === 'sederhana' || level === 'risiko sederhana' || level === 'trung bình' || level === 'rủi ro trung bình' || 
+              level === 'ปานกลาง' || level === 'ความเสี่ยงปานกลาง' || level === 'katamtaman' || 
               level === 'madya' || level === 'sedeng') {
             return '#fde68a'; // Yellow border
           }
@@ -1762,6 +2359,43 @@ export default defineContentScript({
         const riskContainer = document.createElement('div');
         riskContainer.style.cssText = 'text-align: center; margin-bottom: 24px;';
         
+        // Translate risk level to target language if needed
+        const translateRiskLevel = (riskLevel: string, targetLang: string) => {
+          const level = riskLevel.toLowerCase();
+          
+          if (targetLang === 'zh') {
+            // Chinese translations
+            if (level === 'high') return '高风险';
+            if (level === 'medium') return '中等风险';
+            if (level === 'low') return '低风险';
+          } else if (targetLang === 'ms') {
+            // Malay translations
+            if (level === 'high') return 'RISIKO TINGGI';
+            if (level === 'medium') return 'RISIKO SEDERHANA';
+            if (level === 'low') return 'RISIKO RENDAH';
+          } else if (targetLang === 'vi') {
+            // Vietnamese translations
+            if (level === 'high') return 'RỦI RO CAO';
+            if (level === 'medium') return 'RỦI RO TRUNG BÌNH';
+            if (level === 'low') return 'RỦI RO THẤP';
+          } else if (targetLang === 'th') {
+            // Thai translations
+            if (level === 'high') return 'ความเสี่ยงสูง';
+            if (level === 'medium') return 'ความเสี่ยงปานกลาง';
+            if (level === 'low') return 'ความเสี่ยงต่ำ';
+          } else {
+            // Default to English
+            if (level === 'high') return 'HIGH RISK';
+            if (level === 'medium') return 'MEDIUM RISK';
+            if (level === 'low') return 'LOW RISK';
+          }
+          
+          // Fallback to original if no translation found
+          return riskLevel.toUpperCase();
+        };
+
+        const displayRiskLevel = translateRiskLevel(result.risk_level, result.target_language || 'en');
+        
         const riskBadge = document.createElement('div');
         riskBadge.style.cssText = `
           display: inline-flex;
@@ -1770,10 +2404,10 @@ export default defineContentScript({
           border-radius: 9999px;
           color: white;
           font-weight: 600;
-          background-color: ${getRiskColor(result.risk_level)};
+          background-color: ${getRiskColor(displayRiskLevel)};
           margin-bottom: 8px;
         `;
-        riskBadge.innerHTML = `<span style="margin-right: 8px;">⚠️</span>${result.risk_level.toUpperCase()} RISK`;
+        riskBadge.innerHTML = `<span style="margin-right: 8px;">⚠️</span>${displayRiskLevel}`;
         
         riskContainer.appendChild(riskBadge);
 
@@ -1824,15 +2458,15 @@ export default defineContentScript({
         analysisBox.style.cssText = `
           padding: 16px;
           border-radius: 8px;
-          border: 1px solid ${getRiskBorder(result.risk_level)};
-          background-color: ${getRiskBg(result.risk_level)};
+          border: 1px solid ${getRiskBorder(displayRiskLevel)};
+          background-color: ${getRiskBg(displayRiskLevel)};
           margin-bottom: 16px;
         `;
         
         const analysisTitle = document.createElement('h4');
         analysisTitle.style.cssText = `
           font-weight: 600;
-          color: ${getRiskColor(result.risk_level)};
+          color: ${getRiskColor(displayRiskLevel)};
           margin: 0 0 8px 0;
           font-size: 14px;
         `;
@@ -1850,15 +2484,15 @@ export default defineContentScript({
         actionBox.style.cssText = `
           padding: 16px;
           border-radius: 8px;
-          border: 1px solid ${getRiskBorder(result.risk_level)};
-          background-color: ${getRiskBg(result.risk_level)};
+          border: 1px solid ${getRiskBorder(displayRiskLevel)};
+          background-color: ${getRiskBg(displayRiskLevel)};
           margin-bottom: 16px;
         `;
         
         const actionTitle = document.createElement('h4');
         actionTitle.style.cssText = `
           font-weight: 600;
-          color: ${getRiskColor(result.risk_level)};
+          color: ${getRiskColor(displayRiskLevel)};
           margin: 0 0 8px 0;
           font-size: 14px;
         `;
@@ -1945,6 +2579,9 @@ export default defineContentScript({
       };
 
       document.body.appendChild(modalContainer);
+      
+      // Log successful modal display
+      console.log(`✅ Analysis modal displayed on website for ${analysisType} analysis`);
     }
 
     // Function to show analysis error modal
@@ -2092,6 +2729,44 @@ export default defineContentScript({
       document.body.appendChild(modalContainer);
     }
 
+    // Function to convert image URL to base64
+    async function convertImageToBase64(imageUrl: string): Promise<string> {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            if (!ctx) {
+              reject(new Error('Could not get canvas context'));
+              return;
+            }
+            
+            canvas.width = img.width;
+            canvas.height = img.height;
+            
+            ctx.drawImage(img, 0, 0);
+            
+            // Get base64 string without the data:image/jpeg;base64, prefix
+            const base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+            resolve(base64);
+          } catch (error) {
+            reject(error);
+          }
+        };
+        
+        img.onerror = () => {
+          reject(new Error('Failed to load image'));
+        };
+        
+        // Set crossOrigin before setting src
+        img.crossOrigin = 'anonymous';
+        img.src = imageUrl;
+      });
+    }
+
     // Listen for messages from popup requesting data
     browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.type === 'GET_GMAIL_DATA') {
@@ -2145,13 +2820,22 @@ export default defineContentScript({
           sendResponse(facebookExtractionState.data);
         }
       } else if (message.type === 'SHOW_ANALYSIS_MODAL') {
-        console.log('Showing analysis modal on website:', message.result);
+        console.log('Showing analysis modal on website:', message.result, 'Type:', message.analysisType);
         showAnalysisModal(message.result, message.loading || false, message.analysisType || 'email');
         sendResponse({ success: true });
       } else if (message.type === 'SHOW_ANALYSIS_ERROR') {
         console.log('Showing analysis error modal on website:', message.error);
         showAnalysisError(message.error);
         sendResponse({ success: true });
+      } else if (message.type === 'CONVERT_IMAGE_TO_BASE64') {
+        console.log('Converting image to base64:', message.imageUrl);
+        convertImageToBase64(message.imageUrl).then((base64) => {
+          sendResponse({ success: true, base64 });
+        }).catch((error) => {
+          console.error('Failed to convert image to base64:', error);
+          sendResponse({ success: false, error: error.message });
+        });
+        return true; // Indicates we will send a response asynchronously
       }
     });
 

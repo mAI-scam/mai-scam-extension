@@ -16,6 +16,23 @@ export interface WebsiteAnalysisRequest {
   metadata?: any;
 }
 
+export interface SocialMediaAnalysisRequest {
+  platform: string;
+  content: string;
+  author_username: string;
+  target_language: string;
+  image?: string;
+  post_url?: string;
+  author_followers_count?: number;
+  engagement_metrics?: {
+    likes?: number;
+    comments?: number;
+    shares?: number;
+    reactions?: number;
+    views?: number;
+  };
+}
+
 export interface BackendAnalysisResult {
   risk_level: string;
   reasons: string;
@@ -42,6 +59,7 @@ const BACKEND_CONFIG = {
   endpoints: {
     emailAnalyze: '/email/v2/analyze',
     websiteAnalyze: '/website/v2/analyze',
+    socialMediaAnalyze: '/socialmedia/v2/analyze',
     health: '/email/',
     createApiKey: '/auth/api-key',
     createToken: '/auth/token'
@@ -632,6 +650,96 @@ export async function analyzeEmail(
       console.error('❌ Unexpected error in analyzeEmail');
       throw new Error('An unexpected error occurred during analysis. Please try again.');
     }
+  }
+}
+
+// Social media analysis with backend API
+export async function analyzeSocialMediaWithBackend(
+  socialMediaRequest: SocialMediaAnalysisRequest,
+  debugContext: string = 'SOCIAL_MEDIA_ANALYSIS'
+): Promise<BackendAnalysisResponse> {
+  console.log(`📱 [${debugContext}] Starting social media analysis with backend API...`);
+  console.log(`📱 [${debugContext}] Social media request:`, JSON.stringify(socialMediaRequest, null, 2));
+  
+  const apiKey = await getOrCreateApiKey();
+  
+  if (!apiKey) {
+    throw new BackendApiError('Failed to obtain API key for social media analysis', 401, 'AUTHENTICATION_ERROR');
+  }
+
+  const healthResult = await checkBackendHealth();
+  if (!healthResult.isHealthy || !healthResult.workingUrl) {
+    throw new BackendConnectionError(`Backend server is not responding. ${healthResult.error}`);
+  }
+
+  const requestUrl = `${healthResult.workingUrl}${BACKEND_CONFIG.endpoints.socialMediaAnalyze}`;
+  console.log(`📱 [${debugContext}] Making request to:`, requestUrl);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    console.log(`⏰ [${debugContext}] Request timeout after ${BACKEND_CONFIG.timeout}ms`);
+    controller.abort();
+  }, BACKEND_CONFIG.timeout);
+
+  try {
+    const response = await fetch(requestUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': apiKey
+      },
+      body: JSON.stringify(socialMediaRequest),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+    console.log(`📱 [${debugContext}] Response status:`, response.status, response.statusText);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ [${debugContext}] Backend error response:`, errorText);
+      
+      let errorData;
+      try {
+        errorData = JSON.parse(errorText);
+      } catch {
+        errorData = { message: errorText };
+      }
+      
+      throw new BackendApiError(
+        errorData.message || `HTTP ${response.status}`,
+        response.status,
+        errorData.error_code || 'BACKEND_ERROR'
+      );
+    }
+
+    const responseData = await response.json();
+    console.log(`✅ [${debugContext}] Backend response received:`, JSON.stringify(responseData, null, 2));
+
+    if (!responseData.success) {
+      throw new BackendApiError(
+        responseData.message || 'Social media analysis failed',
+        responseData.status_code || 500,
+        'ANALYSIS_FAILED'
+      );
+    }
+
+    return responseData as BackendAnalysisResponse;
+
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    
+    if (error.name === 'AbortError') {
+      console.error(`⏰ [${debugContext}] Request aborted due to timeout`);
+      throw new BackendTimeoutError(`Social media analysis request timed out after ${BACKEND_CONFIG.timeout / 1000} seconds`);
+    }
+    
+    if (error instanceof BackendApiError) {
+      throw error;
+    }
+    
+    console.error(`💥 [${debugContext}] Unexpected error:`, error);
+    throw new BackendConnectionError(`Failed to connect to backend: ${error.message}`);
   }
 }
 
