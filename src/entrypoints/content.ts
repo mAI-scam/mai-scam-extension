@@ -2212,6 +2212,24 @@ export default defineContentScript({
 
     // Function to create and show analysis modal on the website
     function showAnalysisModal(result: any, loading: boolean = false, analysisType: 'email' | 'website' | 'social_media' = 'email') {
+      // Check if this is a website analysis with medium/high risk - use protection system instead
+      if (analysisType === 'website' && result && !loading) {
+        const riskLevel = result.risk_level || result.data?.risk_level;
+        if (riskLevel && isHighOrMediumRisk(riskLevel)) {
+          console.log('🛡️ High/medium risk website detected, showing protection system instead of regular modal');
+          
+          // Remove any existing analysis modal first (including loading modal)
+          const existingModal = document.getElementById('maiscam-analysis-modal');
+          if (existingModal) {
+            existingModal.remove();
+            console.log('🗑️ Removed existing analysis modal before showing protection system');
+          }
+          
+          showWebsiteProtection(result);
+          return;
+        }
+      }
+
       // Remove existing modal if any
       const existingModal = document.getElementById('maiscam-analysis-modal');
       if (existingModal) {
@@ -2892,6 +2910,507 @@ export default defineContentScript({
         return true; // Indicates we will send a response asynchronously
       }
     });
+
+    // Risk-based website protection system
+    let isWebsiteBlurred = false;
+    let blurOverlay: HTMLElement | null = null;
+    let warningModal: HTMLElement | null = null;
+
+    // Function to check if risk level is medium or high in any language
+    function isHighOrMediumRisk(riskLevel: string): boolean {
+      const level = riskLevel.toLowerCase();
+      
+      // High risk patterns (English, Chinese, Malay, Indonesian, Vietnamese, Thai, Filipino, etc.)
+      const highRiskPatterns = ['high', '高', '高风险', 'tinggi', 'risiko tinggi', 
+                               'cao', 'rủi ro cao', 'สูง', 'ความเสี่ยงสูง', 
+                               'mataas', 'dhuwur', 'luhur'];
+      
+      // Medium risk patterns (English, Chinese, Malay, Indonesian, Vietnamese, Thai, Filipino, etc.)
+      const mediumRiskPatterns = ['medium', 'medium risk', '中', '中等', '中等风险', 
+                                 'sederhana', 'risiko sederhana', 'trung bình', 'rủi ro trung bình', 
+                                 'ปานกลาง', 'ความเสี่ยงปานกลาง', 'katamtaman', 
+                                 'madya', 'sedeng'];
+      
+      return highRiskPatterns.some(pattern => level.includes(pattern)) ||
+             mediumRiskPatterns.some(pattern => level.includes(pattern));
+    }
+
+    // Function to create blur overlay
+    function createBlurOverlay(): HTMLElement {
+      const overlay = document.createElement('div');
+      overlay.id = 'maiscam-blur-overlay';
+      overlay.style.cssText = `
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
+        background-color: rgba(0, 0, 0, 0.3) !important;
+        z-index: 999998 !important;
+        pointer-events: none !important;
+      `;
+      return overlay;
+    }
+
+    // Multilingual text for warning modal
+    function getWarningModalTexts(language: string = 'en') {
+      const texts = {
+        en: {
+          title: 'SECURITY WARNING',
+          subtitle: 'This website may pose a security risk',
+          proceedTitle: '⚠️ Proceed at Your Own Risk',
+          proceedText: 'If you understand the risks and still wish to continue, type "I UNDERSTAND" below:',
+          placeholder: 'Type "I UNDERSTAND" to continue',
+          continueButton: 'CONTINUE TO WEBSITE',
+          leaveButton: '🚪 LEAVE THIS WEBSITE TO SAFETY WEBSITE',
+          reportButton: '📢 REPORT SITE',
+          reportMessage: 'Thank you for reporting this website. We will investigate it.',
+          footer: 'Protected by mAIscam Browser Extension',
+          recommendedAction: 'Recommended Action:',
+          passcode: 'I UNDERSTAND'
+        },
+        zh: {
+          title: '安全警告',
+          subtitle: '此网站可能存在安全风险',
+          proceedTitle: '⚠️ 风险自负',
+          proceedText: '如果您了解风险并仍希望继续，请在下方输入"我明白"：',
+          placeholder: '输入"我明白"以继续',
+          continueButton: '继续访问网站',
+          leaveButton: '🚪 前往谷歌',
+          reportButton: '📢 举报网站',
+          reportMessage: '感谢您举报此网站。我们将对其进行调查。',
+          footer: 'mAIscam 浏览器扩展保护',
+          recommendedAction: '建议操作：',
+          passcode: '我明白'
+        },
+        ms: {
+          title: 'AMARAN KESELAMATAN',
+          subtitle: 'Laman web ini mungkin menimbulkan risiko keselamatan',
+          proceedTitle: '⚠️ Teruskan Atas Risiko Sendiri',
+          proceedText: 'Jika anda memahami risiko dan masih ingin meneruskan, taip "SAYA FAHAM" di bawah:',
+          placeholder: 'Taip "SAYA FAHAM" untuk meneruskan',
+          continueButton: 'TERUSKAN KE LAMAN WEB',
+          leaveButton: '🚪 PERGI KE GOOGLE',
+          reportButton: '📢 LAPORKAN LAMAN',
+          reportMessage: 'Terima kasih kerana melaporkan laman web ini. Kami akan menyiasatnya.',
+          footer: 'Dilindungi oleh Sambungan Pelayar mAIscam',
+          recommendedAction: 'Tindakan Disyorkan:',
+          passcode: 'SAYA FAHAM'
+        },
+        vi: {
+          title: 'CẢNH BÁO BẢO MẬT',
+          subtitle: 'Trang web này có thể gây rủi ro bảo mật',
+          proceedTitle: '⚠️ Tiếp Tục Với Rủi Ro Của Bạn',
+          proceedText: 'Nếu bạn hiểu rủi ro và vẫn muốn tiếp tục, hãy gõ "TÔI HIỂU" bên dưới:',
+          placeholder: 'Gõ "TÔI HIỂU" để tiếp tục',
+          continueButton: 'TIẾP TỤC ĐẾN TRANG WEB',
+          leaveButton: '🚪 ĐẾN GOOGLE',
+          reportButton: '📢 BÁO CÁO TRANG',
+          reportMessage: 'Cảm ơn bạn đã báo cáo trang web này. Chúng tôi sẽ điều tra.',
+          footer: 'Được bảo vệ bởi Tiện ích mở rộng mAIscam',
+          recommendedAction: 'Hành Động Được Khuyến Nghị:',
+          passcode: 'TÔI HIỂU'
+        },
+        th: {
+          title: 'คำเตือนด้านความปลอดภัย',
+          subtitle: 'เว็บไซต์นี้อาจก่อให้เกิดความเสี่ยงด้านความปลอดภัย',
+          proceedTitle: '⚠️ ดำเนินการต่อโดยความเสี่ยงของคุณเอง',
+          proceedText: 'หากคุณเข้าใจความเสี่ยงและยังคงต้องการดำเนินการต่อ ให้พิมพ์ "ฉันเข้าใจ" ด้านล่าง:',
+          placeholder: 'พิมพ์ "ฉันเข้าใจ" เพื่อดำเนินการต่อ',
+          continueButton: 'ดำเนินการต่อไปยังเว็บไซต์',
+          leaveButton: '🚪 ไปที่ GOOGLE',
+          reportButton: '📢 รายงานเว็บไซต์',
+          reportMessage: 'ขอบคุณสำหรับการรายงานเว็บไซต์นี้ เราจะตรวจสอบ',
+          footer: 'ได้รับการปกป้องโดย mAIscam Browser Extension',
+          recommendedAction: 'การดำเนินการที่แนะนำ:',
+          passcode: 'ฉันเข้าใจ'
+        }
+      };
+      
+      return texts[language] || texts.en;
+    }
+
+    // Function to create warning modal with passcode input
+    function createWarningModal(analysisResult: any): HTMLElement {
+      // Determine language from analysis result
+      const language = analysisResult.detected_language || analysisResult.target_language || 'en';
+      const texts = getWarningModalTexts(language);
+      
+      const modalContainer = document.createElement('div');
+      modalContainer.id = 'maiscam-warning-modal';
+      modalContainer.style.cssText = `
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        background-color: rgba(0, 0, 0, 0.8) !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        z-index: 999999 !important;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+      `;
+
+      const modal = document.createElement('div');
+      modal.style.cssText = `
+        background: white !important;
+        border-radius: 12px !important;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25) !important;
+        max-width: 500px !important;
+        width: 90% !important;
+        max-height: 80vh !important;
+        overflow-y: auto !important;
+        position: relative !important;
+      `;
+
+      // Header with warning icon
+      const header = document.createElement('div');
+      header.style.cssText = `
+        background: linear-gradient(135deg, #dc2626, #ef4444) !important;
+        color: white !important;
+        padding: 20px !important;
+        text-align: center !important;
+        border-radius: 12px 12px 0 0 !important;
+      `;
+      
+      const warningIcon = document.createElement('div');
+      warningIcon.style.cssText = `
+        font-size: 48px !important;
+        margin-bottom: 10px !important;
+      `;
+      warningIcon.textContent = '⚠️';
+      
+      const title = document.createElement('h2');
+      title.style.cssText = `
+        margin: 0 !important;
+        font-size: 24px !important;
+        font-weight: 700 !important;
+      `;
+      title.textContent = texts.title;
+      
+      const subtitle = document.createElement('p');
+      subtitle.style.cssText = `
+        margin: 8px 0 0 0 !important;
+        font-size: 14px !important;
+        opacity: 0.9 !important;
+      `;
+      subtitle.textContent = texts.subtitle;
+      
+      header.appendChild(warningIcon);
+      header.appendChild(title);
+      header.appendChild(subtitle);
+
+      // Body with risk information
+      const body = document.createElement('div');
+      body.style.cssText = `
+        padding: 24px !important;
+      `;
+
+      // Risk level display
+      const riskLevel = analysisResult.risk_level || analysisResult.data?.risk_level || 'Unknown';
+      const riskBadge = document.createElement('div');
+      riskBadge.style.cssText = `
+        display: inline-flex !important;
+        align-items: center !important;
+        padding: 8px 16px !important;
+        border-radius: 9999px !important;
+        color: white !important;
+        font-weight: 600 !important;
+        background-color: #dc2626 !important;
+        margin-bottom: 16px !important;
+      `;
+      riskBadge.innerHTML = `<span style="margin-right: 8px;">🚨</span>${riskLevel.toUpperCase()}`;
+
+      // Analysis text
+      const analysis = analysisResult.analysis || analysisResult.reasons || analysisResult.data?.analysis || 'This website has been flagged as potentially dangerous.';
+      const analysisText = document.createElement('div');
+      analysisText.style.cssText = `
+        background: #fef2f2 !important;
+        border: 1px solid #fca5a5 !important;
+        border-radius: 8px !important;
+        padding: 16px !important;
+        margin-bottom: 20px !important;
+        color: #374151 !important;
+        line-height: 1.5 !important;
+      `;
+      analysisText.textContent = analysis;
+
+      // Recommended action
+      const recommendedAction = analysisResult.recommended_action || analysisResult.data?.recommended_action || 'We recommend leaving this website immediately.';
+      const actionText = document.createElement('div');
+      actionText.style.cssText = `
+        background: #fffbeb !important;
+        border: 1px solid #fde68a !important;
+        border-radius: 8px !important;
+        padding: 16px !important;
+        margin-bottom: 24px !important;
+        color: #374151 !important;
+        line-height: 1.5 !important;
+      `;
+      actionText.innerHTML = `<strong>💡 ${texts.recommendedAction}</strong><br/>${recommendedAction}`;
+
+      // Acknowledgment section
+      const ackSection = document.createElement('div');
+      ackSection.style.cssText = `
+        border: 2px solid #dc2626 !important;
+        border-radius: 8px !important;
+        padding: 20px !important;
+        margin-bottom: 20px !important;
+        background: #fef2f2 !important;
+      `;
+
+      const ackTitle = document.createElement('h3');
+      ackTitle.style.cssText = `
+        margin: 0 0 12px 0 !important;
+        color: #dc2626 !important;
+        font-size: 16px !important;
+        font-weight: 600 !important;
+      `;
+      ackTitle.textContent = texts.proceedTitle;
+
+      const ackText = document.createElement('p');
+      ackText.style.cssText = `
+        margin: 0 0 16px 0 !important;
+        color: #374151 !important;
+        font-size: 14px !important;
+        line-height: 1.4 !important;
+      `;
+      ackText.textContent = texts.proceedText;
+
+      const passcodeInput = document.createElement('input');
+      passcodeInput.type = 'text';
+      passcodeInput.placeholder = texts.placeholder;
+      passcodeInput.style.cssText = `
+        width: 100% !important;
+        padding: 12px !important;
+        border: 2px solid #d1d5db !important;
+        border-radius: 6px !important;
+        font-size: 14px !important;
+        margin-bottom: 12px !important;
+        box-sizing: border-box !important;
+      `;
+
+      const continueButton = document.createElement('button');
+      continueButton.textContent = texts.continueButton;
+      continueButton.disabled = true;
+      continueButton.style.cssText = `
+        width: 100% !important;
+        padding: 12px !important;
+        background-color: #d1d5db !important;
+        color: #6b7280 !important;
+        border: none !important;
+        border-radius: 6px !important;
+        font-weight: 600 !important;
+        cursor: not-allowed !important;
+        transition: all 0.2s !important;
+      `;
+
+      // Passcode validation
+      passcodeInput.addEventListener('input', () => {
+        const value = passcodeInput.value.trim().toUpperCase();
+        if (value === texts.passcode.toUpperCase()) {
+          continueButton.disabled = false;
+          continueButton.style.cssText = `
+            width: 100% !important;
+            padding: 12px !important;
+            background-color: #dc2626 !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 6px !important;
+            font-weight: 600 !important;
+            cursor: pointer !important;
+            transition: all 0.2s !important;
+          `;
+        } else {
+          continueButton.disabled = true;
+          continueButton.style.cssText = `
+            width: 100% !important;
+            padding: 12px !important;
+            background-color: #d1d5db !important;
+            color: #6b7280 !important;
+            border: none !important;
+            border-radius: 6px !important;
+            font-weight: 600 !important;
+            cursor: not-allowed !important;
+            transition: all 0.2s !important;
+          `;
+        }
+      });
+
+      // Continue button action
+      continueButton.addEventListener('click', () => {
+        if (!continueButton.disabled) {
+          removeWebsiteProtection();
+        }
+      });
+
+      ackSection.appendChild(ackTitle);
+      ackSection.appendChild(ackText);
+      ackSection.appendChild(passcodeInput);
+      ackSection.appendChild(continueButton);
+
+      // Action buttons
+      const buttonContainer = document.createElement('div');
+      buttonContainer.style.cssText = `
+        display: flex !important;
+        gap: 12px !important;
+        margin-top: 20px !important;
+      `;
+
+      const leaveButton = document.createElement('button');
+      leaveButton.textContent = texts.leaveButton;
+      leaveButton.style.cssText = `
+        flex: 1 !important;
+        padding: 12px !important;
+        background-color: #16a34a !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 6px !important;
+        font-weight: 600 !important;
+        cursor: pointer !important;
+        transition: background-color 0.2s !important;
+      `;
+      leaveButton.addEventListener('click', () => {
+        // Clean up all modals before leaving
+        cleanupAllModals();
+        // Redirect to Google.com for safety instead of going back
+        window.location.href = 'https://www.google.com';
+      });
+      leaveButton.addEventListener('mouseover', () => {
+        leaveButton.style.backgroundColor = '#15803d';
+      });
+      leaveButton.addEventListener('mouseout', () => {
+        leaveButton.style.backgroundColor = '#16a34a';
+      });
+
+      const reportButton = document.createElement('button');
+      reportButton.textContent = texts.reportButton;
+      reportButton.style.cssText = `
+        flex: 1 !important;
+        padding: 12px !important;
+        background-color: #3b82f6 !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 6px !important;
+        font-weight: 600 !important;
+        cursor: pointer !important;
+        transition: background-color 0.2s !important;
+      `;
+      reportButton.addEventListener('click', () => {
+        // You can implement reporting functionality here
+        alert(texts.reportMessage);
+      });
+      reportButton.addEventListener('mouseover', () => {
+        reportButton.style.backgroundColor = '#2563eb';
+      });
+      reportButton.addEventListener('mouseout', () => {
+        reportButton.style.backgroundColor = '#3b82f6';
+      });
+
+      buttonContainer.appendChild(leaveButton);
+      buttonContainer.appendChild(reportButton);
+
+      // Footer
+      const footer = document.createElement('div');
+      footer.style.cssText = `
+        text-align: center !important;
+        font-size: 12px !important;
+        color: #6b7280 !important;
+        padding-top: 16px !important;
+        border-top: 1px solid #e5e7eb !important;
+        margin-top: 16px !important;
+      `;
+      footer.textContent = texts.footer;
+
+      body.appendChild(riskBadge);
+      body.appendChild(analysisText);
+      body.appendChild(actionText);
+      body.appendChild(ackSection);
+      body.appendChild(buttonContainer);
+      body.appendChild(footer);
+
+      modal.appendChild(header);
+      modal.appendChild(body);
+      modalContainer.appendChild(modal);
+
+      return modalContainer;
+    }
+
+    // Function to show website protection (blur + modal)
+    function showWebsiteProtection(analysisResult: any) {
+      if (isWebsiteBlurred) return; // Already protected
+      
+      console.log('🛡️ Showing website protection for medium/high risk');
+      
+      // Clean up any existing modals first (including loading states)
+      cleanupAllModals();
+      
+      // Create and show blur overlay
+      blurOverlay = createBlurOverlay();
+      document.body.appendChild(blurOverlay);
+      
+      // Create and show warning modal
+      warningModal = createWarningModal(analysisResult);
+      document.body.appendChild(warningModal);
+      
+      isWebsiteBlurred = true;
+      
+      // Prevent scrolling
+      document.body.style.overflow = 'hidden';
+      
+      // Additional cleanup after a short delay to catch any late-arriving modals
+      setTimeout(() => {
+        const existingModal = document.getElementById('maiscam-analysis-modal');
+        if (existingModal && existingModal !== warningModal) {
+          existingModal.remove();
+          console.log('🗑️ Removed late-arriving analysis modal');
+        }
+      }, 100);
+    }
+
+    // Function to clean up all modals
+    function cleanupAllModals() {
+      // Remove all possible modal instances
+      const modalSelectors = [
+        '#maiscam-analysis-modal',
+        '#maiscam-warning-modal',
+        '#maiscam-blur-overlay'
+      ];
+      
+      modalSelectors.forEach(selector => {
+        const modal = document.querySelector(selector);
+        if (modal) {
+          modal.remove();
+          console.log(`🗑️ Removed modal: ${selector}`);
+        }
+      });
+    }
+
+    // Function to remove website protection
+    function removeWebsiteProtection() {
+      console.log('🔓 Removing website protection - user acknowledged risk');
+      
+      if (blurOverlay) {
+        blurOverlay.remove();
+        blurOverlay = null;
+      }
+      
+      if (warningModal) {
+        warningModal.remove();
+        warningModal = null;
+      }
+      
+      // Clean up all modals to ensure nothing is left behind
+      cleanupAllModals();
+      
+      isWebsiteBlurred = false;
+      
+      // Restore scrolling
+      document.body.style.overflow = '';
+    }
 
     console.log('Content script initialized for:', window.location.hostname);
   },

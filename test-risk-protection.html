@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Risk-Based Protection System</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        .test-button {
+            background: #dc2626;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            margin: 10px;
+            transition: background-color 0.2s;
+        }
+        .test-button:hover {
+            background: #b91c1c;
+        }
+        .test-button.medium {
+            background: #d97706;
+        }
+        .test-button.medium:hover {
+            background: #b45309;
+        }
+        .test-button.low {
+            background: #16a34a;
+        }
+        .test-button.low:hover {
+            background: #15803d;
+        }
+        .info {
+            background: #f0f9ff;
+            border: 1px solid #0ea5e9;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 20px 0;
+        }
+        .website-content {
+            margin: 30px 0;
+            padding: 20px;
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            text-align: center;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛡️ mAIscam Risk-Based Protection Test</h1>
+        
+        <div class="info">
+            <h3>📋 Test Instructions</h3>
+            <p>This page simulates the risk-based protection system. Click the buttons below to test different risk levels:</p>
+            <ul>
+                <li><strong>High Risk:</strong> Should trigger blur overlay + warning modal</li>
+                <li><strong>Medium Risk:</strong> Should trigger blur overlay + warning modal</li>
+                <li><strong>Low Risk:</strong> Should show normal analysis modal</li>
+            </ul>
+        </div>
+
+        <div class="website-content">
+            <h2>🌐 Website Content</h2>
+            <p>This represents the actual website content that would be blurred for medium/high risk sites.</p>
+            <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+        </div>
+
+        <h3>🧪 Test Different Risk Levels</h3>
+        
+        <button class="test-button" onclick="testHighRisk()">
+            🚨 Test High Risk (English)
+        </button>
+        
+        <button class="test-button" onclick="testHighRiskChinese()">
+            🚨 Test High Risk (Chinese)
+        </button>
+        
+        <button class="test-button medium" onclick="testMediumRisk()">
+            ⚠️ Test Medium Risk (Malay)
+        </button>
+        
+        <button class="test-button medium" onclick="testMediumRiskVietnamese()">
+            ⚠️ Test Medium Risk (Vietnamese)
+        </button>
+        
+        <button class="test-button low" onclick="testLowRisk()">
+            ✅ Test Low Risk (Thai)
+        </button>
+
+        <div class="info">
+            <h3>🔑 Passcode Information</h3>
+            <p>For medium/high risk tests, you'll need to type the acknowledgment passcode:</p>
+            <ul>
+                <li><strong>English:</strong> "I UNDERSTAND"</li>
+                <li><strong>Chinese:</strong> "我明白"</li>
+                <li><strong>Malay:</strong> "SAYA FAHAM"</li>
+                <li><strong>Vietnamese:</strong> "TÔI HIỂU"</li>
+                <li><strong>Thai:</strong> "ฉันเข้าใจ"</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // Simulate browser extension message passing
+        function sendMessageToContentScript(message) {
+            // In real extension, this would be browser.tabs.sendMessage
+            if (window.chrome && window.chrome.runtime) {
+                chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+                    chrome.tabs.sendMessage(tabs[0].id, message);
+                });
+            } else {
+                // For testing without extension context
+                console.log('Would send message to content script:', message);
+                // Simulate the message handling
+                if (message.type === 'SHOW_ANALYSIS_MODAL') {
+                    simulateModalDisplay(message);
+                }
+            }
+        }
+
+        function simulateModalDisplay(message) {
+            // This simulates what the content script would do
+            alert('Simulating: ' + message.analysisType + ' analysis with risk level: ' + 
+                  (message.result.risk_level || message.result.data?.risk_level || 'Unknown'));
+        }
+
+        function testHighRisk() {
+            const message = {
+                type: 'SHOW_ANALYSIS_MODAL',
+                analysisType: 'website',
+                result: {
+                    risk_level: 'High',
+                    analysis: 'This website exhibits clear phishing characteristics, including urgent language, requests for account information through unofficial links, and fake banking domains.',
+                    recommended_action: 'Do not interact with this website and report it to authorities.',
+                    detected_language: 'en',
+                    target_language: 'en'
+                },
+                loading: false
+            };
+            sendMessageToContentScript(message);
+        }
+
+        function testHighRiskChinese() {
+            const message = {
+                type: 'SHOW_ANALYSIS_MODAL',
+                analysisType: 'website',
+                result: {
+                    risk_level: '高风险',
+                    analysis: '该网站存在明显的钓鱼特征，包括紧迫语气、要求通过非官方链接提供账户信息，以及伪造的域名。',
+                    recommended_action: '勿与该网站互动并向当局报告。',
+                    detected_language: 'zh',
+                    target_language: 'zh'
+                },
+                loading: false
+            };
+            sendMessageToContentScript(message);
+        }
+
+        function testMediumRisk() {
+            const message = {
+                type: 'SHOW_ANALYSIS_MODAL',
+                analysisType: 'website',
+                result: {
+                    risk_level: 'Risiko Sederhana',
+                    analysis: 'Laman web ini menunjukkan beberapa ciri yang mencurigakan dan mungkin tidak selamat untuk dikunjungi.',
+                    recommended_action: 'Berhati-hati dan jangan berikan maklumat peribadi.',
+                    detected_language: 'ms',
+                    target_language: 'ms'
+                },
+                loading: false
+            };
+            sendMessageToContentScript(message);
+        }
+
+        function testMediumRiskVietnamese() {
+            const message = {
+                type: 'SHOW_ANALYSIS_MODAL',
+                analysisType: 'website',
+                result: {
+                    risk_level: 'Rủi ro trung bình',
+                    analysis: 'Trang web này có một số đặc điểm đáng ngờ và có thể không an toàn để truy cập.',
+                    recommended_action: 'Hãy cẩn thận và không cung cấp thông tin cá nhân.',
+                    detected_language: 'vi',
+                    target_language: 'vi'
+                },
+                loading: false
+            };
+            sendMessageToContentScript(message);
+        }
+
+        function testLowRisk() {
+            const message = {
+                type: 'SHOW_ANALYSIS_MODAL',
+                analysisType: 'website',
+                result: {
+                    risk_level: 'ความเสี่ยงต่ำ',
+                    analysis: 'เว็บไซต์นี้ดูเหมือนจะปลอดภัยและไม่มีสัญญาณเตือนที่ชัดเจน',
+                    recommended_action: 'คุณสามารถดำเนินการต่อได้ แต่ควรระมัดระวังเสมอ',
+                    detected_language: 'th',
+                    target_language: 'th'
+                },
+                loading: false
+            };
+            sendMessageToContentScript(message);
+        }
+
+        // Add some visual feedback
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🧪 Risk-based protection test page loaded');
+            console.log('📝 To test with actual extension, load this page in a browser with the mAIscam extension installed');
+        });
+    </script>
+</body>
+</html>
