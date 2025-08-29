@@ -176,11 +176,33 @@ function App() {
 
     initializeAutoDetection();
     
-    // Listen for tab switches from background script
+    // Listen for tab switches and URL changes from background script
     const handleBackgroundMessages = (message: any) => {
       if (message.type === 'TAB_SWITCHED') {
         console.log('🔄 [SIDEBAR] Received tab switch notification:', message);
         handleTabSwitch(message.tabId, message.tabInfo);
+      } else if (message.type === 'TAB_URL_CHANGED') {
+        console.log('🔄 [SIDEBAR] Received URL change notification:', message);
+        // Handle URL change in current tab
+        if (message.tabId === currentTabId) {
+          handleUrlChange(message.tabId, message.tabInfo);
+        }
+      } else if (message.type === 'MANUAL_DETECTION_COMPLETE') {
+        console.log('🔄 [SIDEBAR] Received manual detection complete notification:', message);
+        // Handle manual detection completion
+        if (message.tabId === currentTabId && message.tabInfo?.detection) {
+          setAutoDetectedSite(message.tabInfo.detection);
+          setScanMode(message.tabInfo.detection.type);
+          console.log('🔄 [SIDEBAR] Updated UI after manual detection:', message.tabInfo.detection);
+        }
+      } else if (message.type === 'INITIAL_DETECTION_COMPLETE') {
+        console.log('🚀 [SIDEBAR] Received initial detection complete notification:', message);
+        // Handle initial detection completion (for manual URL changes)
+        if (message.tabId === currentTabId && message.tabInfo?.detection) {
+          setAutoDetectedSite(message.tabInfo.detection);
+          setScanMode(message.tabInfo.detection.type);
+          console.log('🚀 [SIDEBAR] Updated UI after initial detection:', message.tabInfo.detection);
+        }
       }
     };
     
@@ -248,6 +270,109 @@ function App() {
     } catch (error) {
       console.error('Error handling tab switch:', error);
       setError('Failed to update after tab switch. Please try refreshing.');
+    }
+  };
+
+  // Function to handle URL change notifications from background script
+  const handleUrlChange = async (tabId: number, tabInfo: any) => {
+    try {
+      console.log(`🔄 [SIDEBAR] Handling URL change in tab ${tabId}:`, tabInfo);
+      
+      if (tabInfo?.detection) {
+        // Update auto-detected site info
+        setAutoDetectedSite(tabInfo.detection);
+        setScanMode(tabInfo.detection.type);
+        
+        console.log(`🔄 [SIDEBAR] Updated detection after URL change:`, tabInfo.detection);
+        
+        // Clear previous analysis data when URL changes significantly
+        setAnalysisResult(null);
+        setBackendRequestData(null);
+        setError(null);
+        
+        // Reset extraction states
+        setFacebookExtractionInProgress(false);
+        setLoading(false);
+        
+        // Clear extracted data to force fresh extraction
+        setExtractedData(null);
+        setWebsiteData(null);
+        setFacebookData(null);
+        
+        // If this is Facebook and we're switching to it, check for existing data
+        if (tabInfo.detection.type === 'social' && tabInfo.detection.platform === 'facebook') {
+          try {
+            const response = await browser.tabs.sendMessage(tabId, { type: 'CHECK_FACEBOOK_EXTRACTION_STATUS' });
+            if (response?.inProgress) {
+              setFacebookExtractionInProgress(true);
+              setLoading(true);
+              pollForFacebookData(tabId);
+            } else if (response?.data) {
+              setFacebookData(response.data);
+            }
+          } catch (error) {
+            console.error('Failed to check Facebook status on URL change:', error);
+          }
+        }
+      }
+      
+    } catch (error) {
+      console.error('Error handling URL change:', error);
+      setError('Failed to update after URL change. Please try refreshing.');
+    }
+  };
+
+  // Function to handle manual redetection
+  const handleManualRedetect = async () => {
+    try {
+      console.log('🔄 [SIDEBAR] Manual redetect button clicked');
+      setError(null);
+      
+      // Get current tab
+      const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+      if (!tabs[0]?.id) {
+        setError('No active tab found');
+        return;
+      }
+      
+      const tabId = tabs[0].id;
+      console.log('🔄 [SIDEBAR] Requesting manual redetection for tab', tabId);
+      
+      // Request manual redetection from content script
+      try {
+        const response = await browser.tabs.sendMessage(tabId, { type: 'MANUAL_REDETECT' });
+        console.log('🔄 [SIDEBAR] Manual redetect response:', response);
+        
+        if (response?.success) {
+          // Also get current URL info for immediate update
+          try {
+            const urlInfoResponse = await browser.tabs.sendMessage(tabId, { type: 'GET_CURRENT_URL_INFO' });
+            if (urlInfoResponse?.success && urlInfoResponse.detection) {
+              console.log('🔄 [SIDEBAR] Got current URL info:', urlInfoResponse);
+              setAutoDetectedSite(urlInfoResponse.detection);
+              setScanMode(urlInfoResponse.detection.type);
+              
+              // Show success message temporarily
+              const originalError = error;
+              setError('✅ Site redetected successfully!');
+              setTimeout(() => {
+                setError(originalError);
+              }, 2000);
+            }
+          } catch (urlInfoError) {
+            console.log('Could not get immediate URL info:', urlInfoError);
+          }
+        } else {
+          setError('Failed to trigger redetection');
+        }
+      } catch (messageError) {
+        console.error('Failed to send redetect message:', messageError);
+        setError('Could not communicate with page. Try refreshing the page.');
+      }
+      
+    } catch (error) {
+      console.error('Error in manual redetect:', error);
+      setError('Manual redetection failed. Please try refreshing the page.');
     }
   };
 
@@ -747,8 +872,16 @@ function App() {
                     </div>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                      Manual Analysis
+                    <button
+                      onClick={handleManualRedetect}
+                      disabled={loading}
+                      className="px-2 py-1 text-xs bg-blue-100 text-blue-600 rounded hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      title="Manually redetect current site type"
+                    >
+                      🔄 Redetect
+                    </button>
+                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                      Auto-Detected
                     </span>
                   </div>
                 </div>

@@ -220,10 +220,59 @@ export default defineBackground(() => {
           badgeText = '👥';
           badgeColor = '#8B5CF6'; // Purple
           break;
+        case 'search':
+          badgeText = '🔍';
+          badgeColor = '#F59E0B'; // Amber
+          break;
+        case 'banking':
+          badgeText = '🏦';
+          badgeColor = '#DC2626'; // Red
+          break;
+        case 'ecommerce':
+          badgeText = '🛒';
+          badgeColor = '#059669'; // Emerald
+          break;
         case 'website':
           badgeText = '🌐';
           badgeColor = '#10B981'; // Green
           break;
+        default:
+          badgeText = '❓';
+          badgeColor = '#6B7280'; // Gray
+          break;
+      }
+      
+      // Add platform-specific customization
+      if (detection.platform) {
+        switch (detection.platform) {
+          case 'gmail':
+            badgeText = '✉️';
+            break;
+          case 'facebook':
+            badgeText = '📘';
+            break;
+          case 'twitter':
+            badgeText = '🐦';
+            break;
+          case 'instagram':
+            badgeText = '📷';
+            break;
+          case 'youtube':
+            badgeText = '📺';
+            break;
+          case 'linkedin':
+            badgeText = '💼';
+            break;
+          case 'tiktok':
+            badgeText = '🎵';
+            break;
+          case 'amazon':
+            badgeText = '📦';
+            break;
+          case 'paypal':
+            badgeText = '💳';
+            break;
+        }
       }
       
       await browser.action.setBadgeText({
@@ -236,6 +285,8 @@ export default defineBackground(() => {
         tabId: tabId
       });
       
+      console.log(`🎯 [AUTO-DETECT] Badge updated for tab ${tabId}: ${badgeText} (${detection.type}/${detection.platform})`);
+      
     } catch (error) {
       console.error('Failed to update extension badge:', error);
     }
@@ -247,7 +298,132 @@ export default defineBackground(() => {
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log('Background received message:', message);
 
-    if (message.type === 'GET_SITE_DETECTION') {
+    if (message.type === 'URL_CHANGED_IN_CONTENT') {
+      // Handle URL change notification from content script
+      const tabId = sender.tab?.id;
+      if (tabId && message.newUrl && message.detection) {
+        console.log(`🔄 [AUTO-DETECT] Content script reported URL change for tab ${tabId}:`);
+        console.log(`🔄 [AUTO-DETECT] From: ${message.oldUrl}`);
+        console.log(`🔄 [AUTO-DETECT] To: ${message.newUrl}`);
+        console.log(`🔄 [AUTO-DETECT] Domain change: ${message.isDomainChange}`);
+        console.log(`🔄 [AUTO-DETECT] Old detection:`, message.oldDetection);
+        console.log(`🔄 [AUTO-DETECT] New detection:`, message.detection);
+        
+        // Special logging for back/forward navigation scenarios
+        if (message.oldDetection && message.detection) {
+          const navigationScenario = `${message.oldDetection.type}/${message.oldDetection.platform} → ${message.detection.type}/${message.detection.platform}`;
+          console.log(`🔄 [AUTO-DETECT] Navigation scenario: ${navigationScenario}`);
+          
+          // Check if this could be back/forward navigation (URL seen before)
+          const previousInfo = Object.values(tabSiteInfo).find(info => info.url === message.newUrl);
+          if (previousInfo) {
+            console.log(`🔙 [AUTO-DETECT] Possible back/forward navigation - URL seen before: ${message.newUrl}`);
+          }
+        }
+        
+        // Update stored tab info
+        tabSiteInfo[tabId] = {
+          url: message.newUrl,
+          detection: message.detection,
+          timestamp: message.timestamp || Date.now()
+        };
+        
+        // Update extension badge
+        updateExtensionBadge(tabId, message.detection).catch((error) => {
+          console.error(`❌ [AUTO-DETECT] Failed to update badge after content script URL change:`, error);
+        });
+        
+        // Notify sidebar about the change if it's open
+        browser.runtime.sendMessage({
+          type: 'TAB_URL_CHANGED',
+          tabId: tabId,
+          tabInfo: tabSiteInfo[tabId],
+          oldDetection: message.oldDetection,
+          newDetection: message.detection,
+          isDomainChange: message.isDomainChange,
+          timestamp: message.timestamp || Date.now()
+        }).catch(() => {
+          // Sidebar might not be open, which is fine
+          console.log(`📱 [AUTO-DETECT] Sidebar not open for URL change notification`);
+        });
+        
+        console.log(`✅ [AUTO-DETECT] Updated tab ${tabId} info from content script:`, message.detection);
+      } else {
+        console.warn(`⚠️ [AUTO-DETECT] Incomplete URL change message:`, {
+          tabId,
+          hasNewUrl: !!message.newUrl,
+          hasDetection: !!message.detection,
+          message
+        });
+      }
+      sendResponse({ success: true });
+    } else if (message.type === 'MANUAL_REDETECTION') {
+      // Handle manual redetection from content script
+      const tabId = sender.tab?.id;
+      if (tabId && message.url && message.detection) {
+        console.log(`🔄 [AUTO-DETECT] Manual redetection for tab ${tabId}:`);
+        console.log(`🔄 [AUTO-DETECT] URL: ${message.url}`);
+        console.log(`🔄 [AUTO-DETECT] Detection:`, message.detection);
+        
+        // Update stored tab info
+        tabSiteInfo[tabId] = {
+          url: message.url,
+          detection: message.detection,
+          timestamp: message.timestamp || Date.now()
+        };
+        
+        // Update extension badge
+        updateExtensionBadge(tabId, message.detection).catch((error) => {
+          console.error(`❌ [AUTO-DETECT] Failed to update badge after manual redetection:`, error);
+        });
+        
+        // Notify sidebar about the manual detection
+        browser.runtime.sendMessage({
+          type: 'MANUAL_DETECTION_COMPLETE',
+          tabId: tabId,
+          tabInfo: tabSiteInfo[tabId],
+          timestamp: message.timestamp || Date.now()
+        }).catch(() => {
+          console.log(`📱 [AUTO-DETECT] Sidebar not open for manual detection notification`);
+        });
+        
+        console.log(`✅ [AUTO-DETECT] Manual redetection completed for tab ${tabId}`);
+      }
+      sendResponse({ success: true });
+    } else if (message.type === 'INITIAL_DETECTION') {
+      // Handle initial detection from content script (for manual URL changes)
+      const tabId = sender.tab?.id;
+      if (tabId && message.url && message.detection) {
+        console.log(`🚀 [AUTO-DETECT] Initial detection for tab ${tabId}:`);
+        console.log(`🚀 [AUTO-DETECT] URL: ${message.url}`);
+        console.log(`🚀 [AUTO-DETECT] Detection:`, message.detection);
+        
+        // Update stored tab info
+        tabSiteInfo[tabId] = {
+          url: message.url,
+          detection: message.detection,
+          timestamp: message.timestamp || Date.now()
+        };
+        
+        // Update extension badge
+        updateExtensionBadge(tabId, message.detection).catch((error) => {
+          console.error(`❌ [AUTO-DETECT] Failed to update badge after initial detection:`, error);
+        });
+        
+        // Notify sidebar about the initial detection
+        browser.runtime.sendMessage({
+          type: 'INITIAL_DETECTION_COMPLETE',
+          tabId: tabId,
+          tabInfo: tabSiteInfo[tabId],
+          timestamp: message.timestamp || Date.now()
+        }).catch(() => {
+          console.log(`📱 [AUTO-DETECT] Sidebar not open for initial detection notification`);
+        });
+        
+        console.log(`✅ [AUTO-DETECT] Initial detection completed for tab ${tabId}`);
+      }
+      sendResponse({ success: true });
+    } else if (message.type === 'GET_SITE_DETECTION') {
       // Return current site detection for a tab
       const tabId = message.tabId || sender.tab?.id;
       if (tabId && tabSiteInfo[tabId]) {

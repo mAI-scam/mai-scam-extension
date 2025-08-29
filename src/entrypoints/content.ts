@@ -5,6 +5,14 @@ export default defineContentScript({
   main() {
     console.log('Content script loaded on:', window.location.hostname);
     
+    // URL monitoring for better auto-detection
+    let currentUrl = window.location.href;
+    let urlCheckInterval: NodeJS.Timeout | null = null;
+    
+    // Navigation history tracking for back/forward detection
+    let navigationHistory: string[] = [currentUrl];
+    let currentHistoryIndex = 0;
+    
     // State management for Facebook extraction
     let facebookExtractionState: {
       inProgress: boolean;
@@ -15,6 +23,649 @@ export default defineContentScript({
       data: null,
       startTime: null
     };
+
+    // Function to notify background script of URL change
+    function notifyUrlChange(newUrl: string) {
+      console.log('🔄 [CONTENT] URL changed from', currentUrl, 'to', newUrl);
+      console.log('🔄 [CONTENT] Domain change:', new URL(currentUrl).hostname, '->', new URL(newUrl).hostname);
+      
+      // Import detection utilities
+      import('@/utils/urlDetection').then(({ detectSiteType, isSignificantUrlChange }) => {
+        // Always check domain changes first
+        const oldDomain = new URL(currentUrl).hostname;
+        const newDomain = new URL(newUrl).hostname;
+        const isDomainChange = oldDomain !== newDomain;
+        
+        console.log('🔍 [CONTENT] Domain change detected:', isDomainChange);
+        
+        // Check if this is a significant URL change
+        const isSignificant = isSignificantUrlChange(currentUrl, newUrl);
+        console.log('🔍 [CONTENT] Is significant change:', isSignificant);
+        
+        // ENHANCED: Force detection for ALL URL changes to ensure robustness
+        // This ensures we never miss any navigation scenario
+        const forceDetection = true; // Can be set to false for less aggressive detection
+        
+        if (isDomainChange || isSignificant || forceDetection) {
+          console.log('🔍 [CONTENT] URL change processing triggered');
+          console.log('🔍 [CONTENT] Reasons: Domain=' + isDomainChange + ', Significant=' + isSignificant + ', Forced=' + forceDetection);
+          
+          // Detect old and new site types for comparison
+          const oldDetection = detectSiteType(currentUrl);
+          const newDetection = detectSiteType(newUrl);
+          
+          console.log('🔍 [CONTENT] === NAVIGATION ANALYSIS ===');
+          console.log('🔍 [CONTENT] Old detection:', oldDetection);
+          console.log('🔍 [CONTENT] New detection:', newDetection);
+          
+          // Log the specific navigation scenario
+          const navigationScenario = `${oldDetection.type}/${oldDetection.platform} → ${newDetection.type}/${newDetection.platform}`;
+          console.log('🔍 [CONTENT] Navigation scenario:', navigationScenario);
+          
+          // Check if this is one of the critical scenarios we want to ensure works
+          const criticalScenarios = [
+            'email/gmail → social/facebook',
+            'social/facebook → email/gmail',
+            'email/gmail → website/generic',
+            'website/generic → email/gmail',
+            'social/facebook → website/generic',
+            'website/generic → social/facebook',
+            'email/gmail → ecommerce/amazon',
+            'ecommerce/amazon → email/gmail',
+            'social/facebook → ecommerce/amazon',
+            'ecommerce/amazon → social/facebook'
+          ];
+          
+          if (criticalScenarios.includes(navigationScenario)) {
+            console.log('🎯 [CONTENT] CRITICAL SCENARIO DETECTED:', navigationScenario);
+          }
+          
+          // Notify background script
+          browser.runtime.sendMessage({
+            type: 'URL_CHANGED_IN_CONTENT',
+            oldUrl: currentUrl,
+            newUrl: newUrl,
+            oldDetection: oldDetection,
+            detection: newDetection,
+            isDomainChange: isDomainChange,
+            timestamp: Date.now()
+          }).catch((error) => {
+            console.log('📱 [CONTENT] Could not notify background script:', error);
+          });
+          
+          // Update navigation history tracking
+          const isBackNavigation = navigationHistory.includes(newUrl) && 
+                                   navigationHistory.indexOf(newUrl) < currentHistoryIndex;
+          const isForwardNavigation = navigationHistory.includes(newUrl) && 
+                                     navigationHistory.indexOf(newUrl) > currentHistoryIndex;
+          
+          if (isBackNavigation) {
+            console.log('🔙 [CONTENT] BACK NAVIGATION DETECTED to:', newUrl);
+            currentHistoryIndex = navigationHistory.indexOf(newUrl);
+          } else if (isForwardNavigation) {
+            console.log('⏭️ [CONTENT] FORWARD NAVIGATION DETECTED to:', newUrl);
+            currentHistoryIndex = navigationHistory.indexOf(newUrl);
+          } else {
+            console.log('➡️ [CONTENT] NEW NAVIGATION to:', newUrl);
+            // Add to history if it's a new URL
+            navigationHistory.push(newUrl);
+            currentHistoryIndex = navigationHistory.length - 1;
+            
+            // Keep history manageable (last 50 URLs)
+            if (navigationHistory.length > 50) {
+              navigationHistory = navigationHistory.slice(-50);
+              currentHistoryIndex = navigationHistory.length - 1;
+            }
+          }
+          
+          console.log('📜 [CONTENT] Navigation history:', navigationHistory.slice(-5)); // Show last 5
+          console.log('📍 [CONTENT] Current history index:', currentHistoryIndex);
+          
+          currentUrl = newUrl;
+        } else {
+          console.log('🔍 [CONTENT] URL change not significant, skipping notification');
+          console.log('🔍 [CONTENT] Old URL:', currentUrl);
+          console.log('🔍 [CONTENT] New URL:', newUrl);
+        }
+      }).catch((error) => {
+        console.error('❌ [CONTENT] Failed to import detection utilities:', error);
+      });
+    }
+
+    // Function to start URL monitoring
+    function startUrlMonitoring() {
+      // Enhanced popstate handling for back/forward navigation
+      window.addEventListener('popstate', (event) => {
+        console.log('🔙 [CONTENT] POPSTATE EVENT DETECTED - Browser back/forward navigation!');
+        console.log('🔙 [CONTENT] Event state:', event.state);
+        console.log('🔙 [CONTENT] Current URL before check:', window.location.href);
+        
+        const newUrl = window.location.href;
+        if (newUrl !== currentUrl) {
+          console.log('🔙 [CONTENT] URL changed via browser navigation!');
+          console.log('🔙 [CONTENT] From:', currentUrl);
+          console.log('🔙 [CONTENT] To:', newUrl);
+          
+          // Add a small delay to ensure the page has loaded properly after navigation
+          setTimeout(() => {
+            console.log('🔙 [CONTENT] Processing delayed popstate URL change');
+            notifyUrlChange(newUrl);
+          }, 200);
+        } else {
+          console.log('🔙 [CONTENT] Popstate fired but URL unchanged');
+        }
+      });
+
+      // Additional history navigation detection using the History API
+      let historyLength = window.history.length;
+      const checkHistoryChange = () => {
+        const currentHistoryLength = window.history.length;
+        if (currentHistoryLength !== historyLength) {
+          console.log('🔙 [CONTENT] History length changed:', historyLength, '->', currentHistoryLength);
+          historyLength = currentHistoryLength;
+          
+          // Check if URL changed
+          const newUrl = window.location.href;
+          if (newUrl !== currentUrl) {
+            console.log('🔙 [CONTENT] URL changed with history length change');
+            notifyUrlChange(newUrl);
+          }
+        }
+      };
+
+      // Check history changes periodically
+      setInterval(checkHistoryChange, 500);
+
+      // Monitor for pushState/replaceState (SPA navigation)
+      const originalPushState = history.pushState;
+      const originalReplaceState = history.replaceState;
+
+      history.pushState = function(state: any, title: string, url?: string | URL | null) {
+        originalPushState.call(history, state, title, url);
+        const newUrl = window.location.href;
+        if (newUrl !== currentUrl) {
+          setTimeout(() => notifyUrlChange(newUrl), 100); // Small delay to ensure DOM updates
+        }
+      };
+
+      history.replaceState = function(state: any, title: string, url?: string | URL | null) {
+        originalReplaceState.call(history, state, title, url);
+        const newUrl = window.location.href;
+        if (newUrl !== currentUrl) {
+          setTimeout(() => notifyUrlChange(newUrl), 100); // Small delay to ensure DOM updates
+        }
+      };
+
+      // Aggressive URL checking - especially important for Gmail->other site navigation
+      let checkCount = 0;
+      let lastCheckedUrl = window.location.href;
+      const maxFastChecks = 50; // Extended fast checks for better detection
+      
+      const aggressiveUrlCheck = () => {
+        const newUrl = window.location.href;
+        
+        // Always log URL checks for debugging
+        if (checkCount % 10 === 0) { // Log every 10th check to avoid spam
+          console.log('🔍 [CONTENT] URL check #' + checkCount + ':', newUrl);
+        }
+        
+        if (newUrl !== currentUrl) {
+          console.log('🚨 [CONTENT] URL CHANGE DETECTED in aggressive check!');
+          console.log('🚨 [CONTENT] From:', currentUrl);
+          console.log('🚨 [CONTENT] To:', newUrl);
+          console.log('🚨 [CONTENT] Same tab navigation detected!');
+          notifyUrlChange(newUrl);
+          checkCount = 0; // Reset counter when URL changes
+          lastCheckedUrl = newUrl;
+        } else if (newUrl !== lastCheckedUrl) {
+          // Additional safety check - sometimes currentUrl might not be updated properly
+          console.log('🚨 [CONTENT] Backup URL change detection triggered!');
+          console.log('🚨 [CONTENT] Last checked:', lastCheckedUrl);
+          console.log('🚨 [CONTENT] Current:', newUrl);
+          notifyUrlChange(newUrl);
+          lastCheckedUrl = newUrl;
+        }
+        
+        checkCount++;
+        
+        // Use very frequent intervals initially, then gradually slow down
+        // Also speed up when user activity is detected
+        let interval;
+        if (checkCount < 20) {
+          interval = 300; // 0.3s for first 6 seconds (faster for link clicks)
+        } else if (checkCount < maxFastChecks) {
+          interval = 800; // 0.8s for next 24 seconds
+        } else {
+          interval = 1500; // 1.5s thereafter
+        }
+        
+        setTimeout(aggressiveUrlCheck, interval);
+      };
+      
+      // Function to reset to fast checking when user activity is detected
+      const resetToFastChecking = () => {
+        console.log('⚡ [CONTENT] User activity detected, resetting to fast URL checking');
+        checkCount = 0; // Reset to fast checking mode
+      };
+
+      // Start aggressive checking
+      aggressiveUrlCheck();
+
+      // Enhanced MutationObserver to detect navigation patterns across different sites
+      const observer = new MutationObserver((mutations) => {
+        // Check if URL changed during DOM mutations
+        const newUrl = window.location.href;
+        if (newUrl !== currentUrl) {
+          notifyUrlChange(newUrl);
+        }
+        
+        // Check for specific patterns that indicate navigation across different platforms
+        let significantChange = false;
+        let detectedPatterns: string[] = [];
+        
+        mutations.forEach((mutation) => {
+          if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+            mutation.addedNodes.forEach((node) => {
+              if (node.nodeType === Node.ELEMENT_NODE) {
+                const element = node as Element;
+                
+                // Gmail-specific navigation indicators
+                if (element.matches && (
+                  element.matches('[role="main"]') ||
+                  element.matches('[data-thread-id]') ||
+                  element.matches('.nH') || // Gmail container
+                  element.matches('[gh="tl"]') || // Gmail thread list
+                  element.querySelector('[role="main"]') ||
+                  element.querySelector('[data-thread-id]') ||
+                  element.querySelector('.nH')
+                )) {
+                  significantChange = true;
+                  detectedPatterns.push('gmail');
+                }
+                
+                // Facebook-specific navigation indicators
+                if (element.matches && (
+                  element.matches('[role="main"]') ||
+                  element.matches('[data-pagelet]') ||
+                  element.matches('[id*="mount"]') ||
+                  element.matches('.x1n2onr6') || // Facebook feed container
+                  element.querySelector('[role="main"]') ||
+                  element.querySelector('[data-pagelet]')
+                )) {
+                  significantChange = true;
+                  detectedPatterns.push('facebook');
+                }
+                
+                // Twitter/X navigation indicators
+                if (element.matches && (
+                  element.matches('[data-testid="primaryColumn"]') ||
+                  element.matches('[data-testid="tweet"]') ||
+                  element.matches('[role="main"]') ||
+                  element.matches('[aria-label*="Timeline"]') ||
+                  element.querySelector('[data-testid="primaryColumn"]') ||
+                  element.querySelector('[data-testid="tweet"]')
+                )) {
+                  significantChange = true;
+                  detectedPatterns.push('twitter');
+                }
+                
+                // LinkedIn navigation indicators
+                if (element.matches && (
+                  element.matches('.scaffold-layout__main') ||
+                  element.matches('[data-id*="feed"]') ||
+                  element.matches('.feed-container-theme') ||
+                  element.querySelector('.scaffold-layout__main') ||
+                  element.querySelector('[data-id*="feed"]')
+                )) {
+                  significantChange = true;
+                  detectedPatterns.push('linkedin');
+                }
+                
+                // Instagram navigation indicators
+                if (element.matches && (
+                  element.matches('[role="main"]') ||
+                  element.matches('article') ||
+                  element.matches('[data-testid*="post"]') ||
+                  element.querySelector('[role="main"]') ||
+                  element.querySelector('article')
+                )) {
+                  significantChange = true;
+                  detectedPatterns.push('instagram');
+                }
+                
+                // YouTube navigation indicators
+                if (element.matches && (
+                  element.matches('#content') ||
+                  element.matches('ytd-page-manager') ||
+                  element.matches('[id*="player"]') ||
+                  element.matches('ytd-watch-flexy') ||
+                  element.querySelector('#content') ||
+                  element.querySelector('ytd-page-manager')
+                )) {
+                  significantChange = true;
+                  detectedPatterns.push('youtube');
+                }
+                
+                // General SPA navigation indicators
+                if (element.matches && (
+                  element.matches('[id*="app"]') ||
+                  element.matches('[id*="root"]') ||
+                  element.matches('[class*="main"]') ||
+                  element.matches('[class*="content"]') ||
+                  element.matches('[class*="container"]')
+                )) {
+                  // Only trigger for substantial content changes
+                  if (element.children && element.children.length > 3) {
+                    significantChange = true;
+                    detectedPatterns.push('spa');
+                  }
+                }
+              }
+            });
+          }
+          
+          // Also check for title changes (common in SPAs)
+          if (mutation.type === 'childList' && mutation.target.nodeName === 'HEAD') {
+            mutation.addedNodes.forEach((node) => {
+              if (node.nodeType === Node.ELEMENT_NODE) {
+                const element = node as Element;
+                if (element.tagName === 'TITLE') {
+                  significantChange = true;
+                  detectedPatterns.push('title_change');
+                }
+              }
+            });
+          }
+        });
+        
+        if (significantChange) {
+          console.log('🔍 [CONTENT] DOM changes detected, patterns:', detectedPatterns);
+          setTimeout(() => {
+            const newUrl = window.location.href;
+            if (newUrl !== currentUrl) {
+              notifyUrlChange(newUrl);
+            }
+          }, 300); // Shorter delay for faster detection
+        }
+      });
+
+      // Observe both body and head for comprehensive monitoring
+      observer.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class', 'id', 'data-testid', 'role'] // Monitor key attributes that indicate navigation
+      });
+
+      // Additional event listeners for various navigation events
+      const events = [
+        'DOMContentLoaded',
+        'load',
+        'beforeunload',
+        'unload',
+        'pagehide',
+        'pageshow',
+        'focus',
+        'blur',
+        'visibilitychange'
+      ];
+
+      // Special handling for page load - this catches manual URL changes
+      window.addEventListener('load', () => {
+        console.log('📄 [CONTENT] PAGE LOAD detected - checking for URL changes');
+        setTimeout(() => {
+          const newUrl = window.location.href;
+          console.log('📄 [CONTENT] Page loaded with URL:', newUrl);
+          if (newUrl !== currentUrl) {
+            console.log('📄 [CONTENT] URL changed during page load (manual address bar navigation)');
+            notifyUrlChange(newUrl);
+          } else {
+            console.log('📄 [CONTENT] Page loaded with same URL, but triggering detection anyway');
+            // Even if URL is the same, trigger detection to ensure proper initialization
+            notifyUrlChange(newUrl);
+          }
+        }, 500); // Give page time to fully load
+      });
+
+      // DOMContentLoaded is often the first reliable event after manual navigation
+      document.addEventListener('DOMContentLoaded', () => {
+        console.log('📄 [CONTENT] DOM CONTENT LOADED - checking for URL changes');
+        setTimeout(() => {
+          const newUrl = window.location.href;
+          console.log('📄 [CONTENT] DOM loaded with URL:', newUrl);
+          if (newUrl !== currentUrl) {
+            console.log('📄 [CONTENT] URL changed during DOM load (manual address bar navigation)');
+            notifyUrlChange(newUrl);
+          }
+        }, 100);
+      });
+
+      // Special handling for beforeunload - this catches navigation away from current page
+      window.addEventListener('beforeunload', (event) => {
+        console.log('🚨 [CONTENT] BEFOREUNLOAD detected - page is being left!');
+        console.log('🚨 [CONTENT] Current URL being left:', window.location.href);
+        console.log('🚨 [CONTENT] This could be due to link click navigation');
+        // Note: We can't reliably get the destination URL in beforeunload
+        
+        // Set up a check for the new page (this will run on the new page when it loads)
+        setTimeout(() => {
+          const newUrl = window.location.href;
+          if (newUrl !== currentUrl) {
+            console.log('🚨 [CONTENT] New page loaded after beforeunload:', newUrl);
+            notifyUrlChange(newUrl);
+          }
+        }, 100);
+      });
+
+      // Special handling for pagehide - this is more reliable than beforeunload
+      window.addEventListener('pagehide', (event) => {
+        console.log('🚨 [CONTENT] PAGEHIDE detected - page is being hidden!');
+        console.log('🚨 [CONTENT] Persisted:', event.persisted);
+        console.log('🚨 [CONTENT] Current URL being hidden:', window.location.href);
+      });
+
+      // Special handling for pageshow - this detects when a page becomes visible
+      window.addEventListener('pageshow', (event) => {
+        console.log('🚨 [CONTENT] PAGESHOW detected - page is being shown!');
+        console.log('🚨 [CONTENT] Persisted:', event.persisted);
+        console.log('🚨 [CONTENT] This could be from back/forward navigation');
+        const newUrl = window.location.href;
+        console.log('🚨 [CONTENT] Page shown URL:', newUrl);
+        if (newUrl !== currentUrl) {
+          console.log('🚨 [CONTENT] URL changed during pageshow - likely back/forward navigation!');
+          notifyUrlChange(newUrl);
+        }
+      });
+
+      // Enhanced visibility change handling for back/forward navigation
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          console.log('👁️ [CONTENT] Page became visible - checking for URL changes');
+          setTimeout(() => {
+            const newUrl = window.location.href;
+            if (newUrl !== currentUrl) {
+              console.log('👁️ [CONTENT] URL changed when page became visible (back/forward navigation)');
+              notifyUrlChange(newUrl);
+            }
+          }, 100);
+        }
+      });
+
+      // Focus event can also indicate back/forward navigation
+      window.addEventListener('focus', () => {
+        console.log('🎯 [CONTENT] Window focused - checking for URL changes');
+        setTimeout(() => {
+          const newUrl = window.location.href;
+          if (newUrl !== currentUrl) {
+            console.log('🎯 [CONTENT] URL changed on window focus (possible back/forward navigation)');
+            notifyUrlChange(newUrl);
+          }
+        }, 100);
+      });
+
+      events.forEach(eventType => {
+        window.addEventListener(eventType, () => {
+          setTimeout(() => {
+            const newUrl = window.location.href;
+            if (newUrl !== currentUrl) {
+              console.log(`🔍 [CONTENT] URL change detected via ${eventType} event`);
+              notifyUrlChange(newUrl);
+            }
+          }, 100);
+        });
+      });
+
+      // Listen for custom navigation events that some SPAs might dispatch
+      const customEvents = ['routechange', 'navigationstart', 'navigationend', 'urlchange'];
+      customEvents.forEach(eventType => {
+        window.addEventListener(eventType, () => {
+          setTimeout(() => {
+            const newUrl = window.location.href;
+            if (newUrl !== currentUrl) {
+              console.log(`🔍 [CONTENT] URL change detected via custom ${eventType} event`);
+              notifyUrlChange(newUrl);
+            }
+          }, 100);
+        });
+      });
+
+      // Additional check for document readyState changes (catches manual URL changes)
+      const checkReadyState = () => {
+        console.log('📄 [CONTENT] Document ready state:', document.readyState);
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+          setTimeout(() => {
+            const newUrl = window.location.href;
+            if (newUrl !== currentUrl) {
+              console.log('📄 [CONTENT] URL change detected via ready state check (manual navigation)');
+              notifyUrlChange(newUrl);
+            }
+          }, 200);
+        }
+      };
+
+      // Monitor ready state changes
+      document.addEventListener('readystatechange', checkReadyState);
+      
+      // Immediate ready state check
+      checkReadyState();
+
+      // Add click detection for links that navigate to other sites
+      document.addEventListener('click', (event) => {
+        const target = event.target as HTMLElement;
+        const link = target.closest('a');
+        
+        if (link && link.href && link.href !== window.location.href) {
+          console.log('🔗 [CONTENT] Link clicked:', link.href);
+          console.log('🔗 [CONTENT] Current URL:', window.location.href);
+          
+          // Check if this is a cross-domain link
+          try {
+            const currentDomain = new URL(window.location.href).hostname;
+            const linkDomain = new URL(link.href).hostname;
+            
+            if (currentDomain !== linkDomain) {
+              console.log('🔗 [CONTENT] Cross-domain link detected:', currentDomain, '->', linkDomain);
+              
+              // Reset to fast checking mode
+              resetToFastChecking();
+              
+              // Set up detection for after navigation
+              setTimeout(() => {
+                const newUrl = window.location.href;
+                console.log('🔗 [CONTENT] Checking URL after link click:', newUrl);
+                if (newUrl !== currentUrl && newUrl === link.href) {
+                  console.log('🔗 [CONTENT] Link navigation confirmed, triggering detection');
+                  notifyUrlChange(newUrl);
+                }
+              }, 100);
+              
+              // Also check after a longer delay for slower navigations
+              setTimeout(() => {
+                const newUrl = window.location.href;
+                if (newUrl !== currentUrl && newUrl === link.href) {
+                  console.log('🔗 [CONTENT] Delayed link navigation detected');
+                  notifyUrlChange(newUrl);
+                }
+              }, 500);
+            }
+          } catch (error) {
+            console.log('🔗 [CONTENT] Error parsing link URL:', error);
+          }
+        }
+      });
+
+      // Monitor for any clicks that might cause navigation
+      document.addEventListener('click', (event) => {
+        // Reset to fast checking mode for any click
+        resetToFastChecking();
+        
+        // Set up a general check for URL changes after any click
+        setTimeout(() => {
+          const newUrl = window.location.href;
+          if (newUrl !== currentUrl) {
+            console.log('🔗 [CONTENT] URL change detected after click event');
+            notifyUrlChange(newUrl);
+          }
+        }, 200);
+        
+        // Additional check for slower navigations
+        setTimeout(() => {
+          const newUrl = window.location.href;
+          if (newUrl !== currentUrl) {
+            console.log('🔗 [CONTENT] Delayed URL change detected after click');
+            notifyUrlChange(newUrl);
+          }
+        }, 1000);
+      });
+
+      console.log('🔍 [CONTENT] Enhanced URL monitoring started for', window.location.hostname);
+      console.log('🔍 [CONTENT] Monitoring events:', [...events, ...customEvents]);
+      console.log('🔗 [CONTENT] Link click detection enabled');
+    }
+
+    // Function to stop URL monitoring
+    function stopUrlMonitoring() {
+      if (urlCheckInterval) {
+        clearInterval(urlCheckInterval);
+        urlCheckInterval = null;
+      }
+    }
+
+    // Manual redetection function
+    function manualRedetect() {
+      console.log('🔄 [CONTENT] Manual redetection triggered!');
+      const newUrl = window.location.href;
+      console.log('🔄 [CONTENT] Current URL for manual detection:', newUrl);
+      
+      // Force notification even if URL hasn't changed (in case detection was missed)
+      import('@/utils/urlDetection').then(({ detectSiteType }) => {
+        const detection = detectSiteType(newUrl);
+        console.log('🔄 [CONTENT] Manual detection result:', detection);
+        
+        // Notify background script with manual detection flag
+        browser.runtime.sendMessage({
+          type: 'MANUAL_REDETECTION',
+          url: newUrl,
+          detection: detection,
+          timestamp: Date.now()
+        }).catch((error) => {
+          console.log('📱 [CONTENT] Could not notify background script of manual detection:', error);
+        });
+        
+        // Update current URL tracking
+        currentUrl = newUrl;
+        
+        // Add to navigation history
+        if (!navigationHistory.includes(newUrl)) {
+          navigationHistory.push(newUrl);
+          currentHistoryIndex = navigationHistory.length - 1;
+        }
+        
+        console.log('✅ [CONTENT] Manual redetection completed');
+      }).catch((error) => {
+        console.error('❌ [CONTENT] Failed to perform manual detection:', error);
+      });
+    }
     
     // Interface for Gmail data
     interface GmailData {
@@ -3412,6 +4063,80 @@ export default defineContentScript({
       document.body.style.overflow = '';
     }
 
+    // Start URL monitoring for better auto-detection
+    startUrlMonitoring();
+    
+    // Immediate detection on content script load (catches manual URL changes)
+    setTimeout(() => {
+      console.log('🚀 [CONTENT] Initial detection on content script load');
+      const initialUrl = window.location.href;
+      console.log('🚀 [CONTENT] Initial URL:', initialUrl);
+      
+      // Trigger initial detection to ensure proper initialization
+      import('@/utils/urlDetection').then(({ detectSiteType }) => {
+        const detection = detectSiteType(initialUrl);
+        console.log('🚀 [CONTENT] Initial detection result:', detection);
+        
+        // Notify background script of initial detection
+        browser.runtime.sendMessage({
+          type: 'INITIAL_DETECTION',
+          url: initialUrl,
+          detection: detection,
+          timestamp: Date.now()
+        }).catch((error) => {
+          console.log('📱 [CONTENT] Could not notify background script of initial detection:', error);
+        });
+        
+        // Update current URL tracking
+        currentUrl = initialUrl;
+        
+        // Initialize navigation history
+        if (!navigationHistory.includes(initialUrl)) {
+          navigationHistory = [initialUrl];
+          currentHistoryIndex = 0;
+        }
+        
+        console.log('✅ [CONTENT] Initial detection completed');
+      }).catch((error) => {
+        console.error('❌ [CONTENT] Failed to perform initial detection:', error);
+      });
+    }, 100); // Small delay to ensure page is ready
+    
+    // Listen for messages from the extension (sidebar/popup)
+    browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      console.log('🔔 [CONTENT] Received message:', message);
+      
+      if (message.type === 'MANUAL_REDETECT') {
+        console.log('🔄 [CONTENT] Manual redetect requested from extension');
+        manualRedetect();
+        sendResponse({ success: true, message: 'Manual redetection triggered' });
+        return true;
+      }
+      
+      if (message.type === 'GET_CURRENT_URL_INFO') {
+        console.log('🔍 [CONTENT] Current URL info requested');
+        import('@/utils/urlDetection').then(({ detectSiteType }) => {
+          const detection = detectSiteType(window.location.href);
+          sendResponse({
+            success: true,
+            url: window.location.href,
+            detection: detection,
+            navigationHistory: navigationHistory.slice(-5) // Last 5 URLs
+          });
+        }).catch((error) => {
+          sendResponse({
+            success: false,
+            error: error.message,
+            url: window.location.href
+          });
+        });
+        return true; // Indicates we will send a response asynchronously
+      }
+      
+      // Handle other existing message types...
+      return false; // Let other handlers process the message
+    });
+    
     console.log('Content script initialized for:', window.location.hostname);
   },
 });
