@@ -2881,6 +2881,24 @@ export default defineContentScript({
         }
       }
 
+      // Check if this is an email analysis with medium/high risk - use protection system instead
+      if (analysisType === 'email' && result && !loading) {
+        const riskLevel = result.risk_level || result.data?.risk_level;
+        if (riskLevel && isHighOrMediumRisk(riskLevel)) {
+          console.log('🛡️ High/medium risk email detected, showing protection system instead of regular modal');
+          
+          // Remove any existing analysis modal first (including loading modal)
+          const existingModal = document.getElementById('maiscam-analysis-modal');
+          if (existingModal) {
+            existingModal.remove();
+            console.log('🗑️ Removed existing analysis modal before showing protection system');
+          }
+          
+          showEmailProtection(result);
+          return;
+        }
+      }
+
       // Remove existing modal if any
       const existingModal = document.getElementById('maiscam-analysis-modal');
       if (existingModal) {
@@ -3567,6 +3585,11 @@ export default defineContentScript({
     let blurOverlay: HTMLElement | null = null;
     let warningModal: HTMLElement | null = null;
 
+    // Risk-based email protection system
+    let isEmailBlurred = false;
+    let emailBlurOverlay: HTMLElement | null = null;
+    let emailWarningModal: HTMLElement | null = null;
+
     // Function to check if risk level is medium or high in any language
     function isHighOrMediumRisk(riskLevel: string): boolean {
       const level = riskLevel.toLowerCase();
@@ -3605,8 +3628,8 @@ export default defineContentScript({
       return overlay;
     }
 
-    // Multilingual text for warning modal
-    function getWarningModalTexts(language: string = 'en') {
+    // Multilingual text for warning modal - website version
+    function getWebsiteWarningModalTexts(language: string = 'en') {
       const texts = {
         en: {
           title: 'SECURITY WARNING',
@@ -3680,14 +3703,92 @@ export default defineContentScript({
         }
       };
       
-      return texts[language] || texts.en;
+      return texts[language as keyof typeof texts] || texts.en;
+    }
+
+    // Multilingual text for warning modal - email version
+    function getEmailWarningModalTexts(language: string = 'en') {
+      const texts = {
+        en: {
+          title: 'EMAIL SECURITY WARNING',
+          subtitle: 'This email may be a scam or phishing attempt',
+          proceedTitle: '⚠️ Proceed at Your Own Risk',
+          proceedText: 'If you understand the risks and still wish to continue, type "I UNDERSTAND" below:',
+          placeholder: 'Type "I UNDERSTAND" to continue',
+          continueButton: 'CONTINUE WITH EMAIL',
+          leaveButton: '🚪 CLOSE EMAIL',
+          reportButton: '📢 REPORT EMAIL',
+          reportMessage: 'Thank you for reporting this email. We will investigate it.',
+          footer: 'Protected by mAIscam Browser Extension',
+          recommendedAction: 'Recommended Action:',
+          passcode: 'I UNDERSTAND'
+        },
+        zh: {
+          title: '邮件安全警告',
+          subtitle: '此邮件可能是诈骗或钓鱼邮件',
+          proceedTitle: '⚠️ 风险自负',
+          proceedText: '如果您了解风险并仍希望继续，请在下方输入"我明白"：',
+          placeholder: '输入"我明白"以继续',
+          continueButton: '继续查看邮件',
+          leaveButton: '🚪 关闭邮件',
+          reportButton: '📢 举报邮件',
+          reportMessage: '感谢您举报此邮件。我们将对其进行调查。',
+          footer: 'mAIscam 浏览器扩展保护',
+          recommendedAction: '建议操作：',
+          passcode: '我明白'
+        },
+        ms: {
+          title: 'AMARAN KESELAMATAN E-MEL',
+          subtitle: 'E-mel ini mungkin penipuan atau percubaan memancing',
+          proceedTitle: '⚠️ Teruskan Atas Risiko Sendiri',
+          proceedText: 'Jika anda memahami risiko dan masih ingin meneruskan, taip "SAYA FAHAM" di bawah:',
+          placeholder: 'Taip "SAYA FAHAM" untuk meneruskan',
+          continueButton: 'TERUSKAN DENGAN E-MEL',
+          leaveButton: '🚪 TUTUP E-MEL',
+          reportButton: '📢 LAPORKAN E-MEL',
+          reportMessage: 'Terima kasih kerana melaporkan e-mel ini. Kami akan menyiasatnya.',
+          footer: 'Dilindungi oleh Sambungan Pelayar mAIscam',
+          recommendedAction: 'Tindakan Disyorkan:',
+          passcode: 'SAYA FAHAM'
+        },
+        vi: {
+          title: 'CẢNH BÁO BẢO MẬT EMAIL',
+          subtitle: 'Email này có thể là lừa đảo hoặc tấn công lừa đảo',
+          proceedTitle: '⚠️ Tiếp Tục Với Rủi Ro Của Bạn',
+          proceedText: 'Nếu bạn hiểu rủi ro và vẫn muốn tiếp tục, hãy gõ "TÔI HIỂU" bên dưới:',
+          placeholder: 'Gõ "TÔI HIỂU" để tiếp tục',
+          continueButton: 'TIẾP TỤC VỚI EMAIL',
+          leaveButton: '🚪 ĐÓNG EMAIL',
+          reportButton: '📢 BÁO CÁO EMAIL',
+          reportMessage: 'Cảm ơn bạn đã báo cáo email này. Chúng tôi sẽ điều tra.',
+          footer: 'Được bảo vệ bởi Tiện ích mở rộng mAIscam',
+          recommendedAction: 'Hành Động Được Khuyến Nghị:',
+          passcode: 'TÔI HIỂU'
+        },
+        th: {
+          title: 'คำเตือนความปลอดภัยอีเมล',
+          subtitle: 'อีเมลนี้อาจเป็นการหลอกลวงหรือฟิชชิ่ง',
+          proceedTitle: '⚠️ ดำเนินการต่อโดยความเสี่ยงของคุณเอง',
+          proceedText: 'หากคุณเข้าใจความเสี่ยงและยังคงต้องการดำเนินการต่อ ให้พิมพ์ "ฉันเข้าใจ" ด้านล่าง:',
+          placeholder: 'พิมพ์ "ฉันเข้าใจ" เพื่อดำเนินการต่อ',
+          continueButton: 'ดำเนินการต่อกับอีเมล',
+          leaveButton: '🚪 ปิดอีเมล',
+          reportButton: '📢 รายงานอีเมล',
+          reportMessage: 'ขอบคุณสำหรับการรายงานอีเมลนี้ เราจะตรวจสอบ',
+          footer: 'ได้รับการปกป้องโดย mAIscam Browser Extension',
+          recommendedAction: 'การดำเนินการที่แนะนำ:',
+          passcode: 'ฉันเข้าใจ'
+        }
+      };
+      
+      return texts[language as keyof typeof texts] || texts.en;
     }
 
     // Function to create warning modal with passcode input
-    function createWarningModal(analysisResult: any): HTMLElement {
-      // Determine language from analysis result
-      const language = analysisResult.detected_language || analysisResult.target_language || 'en';
-      const texts = getWarningModalTexts(language);
+    function createWarningModal(analysisResult: any, protectionType: 'website' | 'email' = 'website'): HTMLElement {
+      // Determine language from analysis result - prioritize target_language (user's choice)
+      const language = analysisResult.target_language || analysisResult.detected_language || 'en';
+      const texts = protectionType === 'email' ? getEmailWarningModalTexts(language) : getWebsiteWarningModalTexts(language);
       
       const modalContainer = document.createElement('div');
       modalContainer.id = 'maiscam-warning-modal';
@@ -3894,7 +3995,11 @@ export default defineContentScript({
       // Continue button action
       continueButton.addEventListener('click', () => {
         if (!continueButton.disabled) {
-          removeWebsiteProtection();
+          if (protectionType === 'email') {
+            removeEmailProtection();
+          } else {
+            removeWebsiteProtection();
+          }
         }
       });
 
@@ -3927,8 +4032,13 @@ export default defineContentScript({
       leaveButton.addEventListener('click', () => {
         // Clean up all modals before leaving
         cleanupAllModals();
-        // Redirect to Google.com for safety instead of going back
-        window.location.href = 'https://www.google.com';
+        if (protectionType === 'email') {
+          // For email, just close the modal and remove protection
+          removeEmailProtection();
+        } else {
+          // For website, redirect to Google.com for safety
+          window.location.href = 'https://www.google.com';
+        }
       });
       leaveButton.addEventListener('mouseover', () => {
         leaveButton.style.backgroundColor = '#15803d';
@@ -3951,8 +4061,14 @@ export default defineContentScript({
         transition: background-color 0.2s !important;
       `;
       reportButton.addEventListener('click', () => {
-        // You can implement reporting functionality here
+        // Show different reporting message based on protection type
         alert(texts.reportMessage);
+        // You can implement different reporting functionality here for email vs website
+        if (protectionType === 'email') {
+          console.log('📧 Email reported for investigation');
+        } else {
+          console.log('🌐 Website reported for investigation');
+        }
       });
       reportButton.addEventListener('mouseover', () => {
         reportButton.style.backgroundColor = '#2563eb';
@@ -4004,7 +4120,7 @@ export default defineContentScript({
       document.body.appendChild(blurOverlay);
       
       // Create and show warning modal
-      warningModal = createWarningModal(analysisResult);
+      warningModal = createWarningModal(analysisResult, 'website');
       document.body.appendChild(warningModal);
       
       isWebsiteBlurred = true;
@@ -4016,6 +4132,38 @@ export default defineContentScript({
       setTimeout(() => {
         const existingModal = document.getElementById('maiscam-analysis-modal');
         if (existingModal && existingModal !== warningModal) {
+          existingModal.remove();
+          console.log('🗑️ Removed late-arriving analysis modal');
+        }
+      }, 100);
+    }
+
+    // Function to show email protection (blur + modal)
+    function showEmailProtection(analysisResult: any) {
+      if (isEmailBlurred) return; // Already protected
+      
+      console.log('🛡️ Showing email protection for medium/high risk');
+      
+      // Clean up any existing modals first (including loading states)
+      cleanupAllModals();
+      
+      // Create and show blur overlay
+      emailBlurOverlay = createBlurOverlay();
+      document.body.appendChild(emailBlurOverlay);
+      
+      // Create and show warning modal
+      emailWarningModal = createWarningModal(analysisResult, 'email');
+      document.body.appendChild(emailWarningModal);
+      
+      isEmailBlurred = true;
+      
+      // Prevent scrolling
+      document.body.style.overflow = 'hidden';
+      
+      // Additional cleanup after a short delay to catch any late-arriving modals
+      setTimeout(() => {
+        const existingModal = document.getElementById('maiscam-analysis-modal');
+        if (existingModal && existingModal !== emailWarningModal) {
           existingModal.remove();
           console.log('🗑️ Removed late-arriving analysis modal');
         }
@@ -4061,6 +4209,31 @@ export default defineContentScript({
       
       // Restore scrolling
       document.body.style.overflow = '';
+    }
+
+    // Function to remove email protection
+    function removeEmailProtection() {
+      console.log('🔓 Removing email protection - user acknowledged risk');
+      
+      if (emailBlurOverlay) {
+        emailBlurOverlay.remove();
+        emailBlurOverlay = null;
+      }
+      
+      if (emailWarningModal) {
+        emailWarningModal.remove();
+        emailWarningModal = null;
+      }
+      
+      // Clean up all modals to ensure nothing is left behind
+      cleanupAllModals();
+      
+      isEmailBlurred = false;
+      
+      // Restore scrolling
+      document.body.style.overflow = '';
+      
+      console.log('✅ Email protection removed successfully');
     }
 
     // Start URL monitoring for better auto-detection
