@@ -2899,6 +2899,24 @@ export default defineContentScript({
         }
       }
 
+      // Check if this is a social media analysis with medium/high risk - use Facebook protection system instead
+      if (analysisType === 'social_media' && result && !loading) {
+        const riskLevel = result.risk_level || result.data?.risk_level;
+        if (riskLevel && isHighOrMediumRisk(riskLevel)) {
+          console.log('🛡️ High/medium risk Facebook post detected, showing protection system instead of regular modal');
+          
+          // Remove any existing analysis modal first (including loading modal)
+          const existingModal = document.getElementById('maiscam-analysis-modal');
+          if (existingModal) {
+            existingModal.remove();
+            console.log('🗑️ Removed existing analysis modal before showing protection system');
+          }
+          
+          showFacebookProtection(result);
+          return;
+        }
+      }
+
       // Remove existing modal if any
       const existingModal = document.getElementById('maiscam-analysis-modal');
       if (existingModal) {
@@ -3590,6 +3608,12 @@ export default defineContentScript({
     let emailBlurOverlay: HTMLElement | null = null;
     let emailWarningModal: HTMLElement | null = null;
 
+    // Risk-based Facebook protection system
+    let isFacebookPostBlurred = false;
+    let facebookPostBlurOverlay: HTMLElement | null = null;
+    let facebookWarningModal: HTMLElement | null = null;
+    let blurredPostElement: HTMLElement | null = null; // Store reference to the specific post being blurred
+
     // Function to check if risk level is medium or high in any language
     function isHighOrMediumRisk(riskLevel: string): boolean {
       const level = riskLevel.toLowerCase();
@@ -3784,11 +3808,91 @@ export default defineContentScript({
       return texts[language as keyof typeof texts] || texts.en;
     }
 
+    // Multilingual text for warning modal - Facebook/social media version
+    function getFacebookWarningModalTexts(language: string = 'en') {
+      const texts = {
+        en: {
+          title: 'SOCIAL MEDIA SECURITY WARNING',
+          subtitle: 'This post may contain scam or misleading content',
+          proceedTitle: '⚠️ Proceed at Your Own Risk',
+          proceedText: 'If you understand the risks and still wish to continue, type "I UNDERSTAND" below:',
+          placeholder: 'Type "I UNDERSTAND" to continue',
+          continueButton: 'CONTINUE WITH POST',
+          leaveButton: '🚪 KEEP POST BLURRED',
+          reportButton: '📢 REPORT POST',
+          reportMessage: 'Thank you for reporting this post. We will investigate it.',
+          footer: 'Protected by mAIscam Browser Extension',
+          recommendedAction: 'Recommended Action:',
+          passcode: 'I UNDERSTAND'
+        },
+        zh: {
+          title: '社交媒体安全警告',
+          subtitle: '此帖子可能包含诈骗或误导性内容',
+          proceedTitle: '⚠️ 风险自负',
+          proceedText: '如果您了解风险并仍希望继续，请在下方输入"我明白"：',
+          placeholder: '输入"我明白"以继续',
+          continueButton: '继续查看帖子',
+          leaveButton: '🚪 保持帖子模糊',
+          reportButton: '📢 举报帖子',
+          reportMessage: '感谢您举报此帖子。我们将对其进行调查。',
+          footer: 'mAIscam 浏览器扩展保护',
+          recommendedAction: '建议操作：',
+          passcode: '我明白'
+        },
+        ms: {
+          title: 'AMARAN KESELAMATAN MEDIA SOSIAL',
+          subtitle: 'Siaran ini mungkin mengandungi penipuan atau kandungan mengelirukan',
+          proceedTitle: '⚠️ Teruskan Atas Risiko Sendiri',
+          proceedText: 'Jika anda memahami risiko dan masih ingin meneruskan, taip "SAYA FAHAM" di bawah:',
+          placeholder: 'Taip "SAYA FAHAM" untuk meneruskan',
+          continueButton: 'TERUSKAN DENGAN SIARAN',
+          leaveButton: '🚪 KEKALKAN SIARAN KABUR',
+          reportButton: '📢 LAPORKAN SIARAN',
+          reportMessage: 'Terima kasih kerana melaporkan siaran ini. Kami akan menyiasatnya.',
+          footer: 'Dilindungi oleh Sambungan Pelayar mAIscam',
+          recommendedAction: 'Tindakan Disyorkan:',
+          passcode: 'SAYA FAHAM'
+        },
+        vi: {
+          title: 'CẢNH BÁO BẢO MẬT MẠNG XÃ HỘI',
+          subtitle: 'Bài đăng này có thể chứa nội dung lừa đảo hoặc gây hiểu lầm',
+          proceedTitle: '⚠️ Tiếp Tục Với Rủi Ro Của Bạn',
+          proceedText: 'Nếu bạn hiểu rủi ro và vẫn muốn tiếp tục, hãy gõ "TÔI HIỂU" bên dưới:',
+          placeholder: 'Gõ "TÔI HIỂU" để tiếp tục',
+          continueButton: 'TIẾP TỤC VỚI BÀI ĐĂNG',
+          leaveButton: '🚪 GIỮ BÀI ĐĂNG MỜ',
+          reportButton: '📢 BÁO CÁO BÀI ĐĂNG',
+          reportMessage: 'Cảm ơn bạn đã báo cáo bài đăng này. Chúng tôi sẽ điều tra.',
+          footer: 'Được bảo vệ bởi Tiện ích mở rộng mAIscam',
+          recommendedAction: 'Hành Động Được Khuyến Nghị:',
+          passcode: 'TÔI HIỂU'
+        },
+        th: {
+          title: 'คำเตือนความปลอดภัยโซเชียลมีเดีย',
+          subtitle: 'โพสต์นี้อาจมีเนื้อหาที่หลอกลวงหรือทำให้เข้าใจผิด',
+          proceedTitle: '⚠️ ดำเนินการต่อโดยความเสี่ยงของคุณเอง',
+          proceedText: 'หากคุณเข้าใจความเสี่ยงและยังคงต้องการดำเนินการต่อ ให้พิมพ์ "ฉันเข้าใจ" ด้านล่าง:',
+          placeholder: 'พิมพ์ "ฉันเข้าใจ" เพื่อดำเนินการต่อ',
+          continueButton: 'ดำเนินการต่อกับโพสต์',
+          leaveButton: '🚪 เก็บโพสต์ให้เบลอ',
+          reportButton: '📢 รายงานโพสต์',
+          reportMessage: 'ขอบคุณสำหรับการรายงานโพสต์นี้ เราจะตรวจสอบ',
+          footer: 'ได้รับการปกป้องโดย mAIscam Browser Extension',
+          recommendedAction: 'การดำเนินการที่แนะนำ:',
+          passcode: 'ฉันเข้าใจ'
+        }
+      };
+      
+      return texts[language as keyof typeof texts] || texts.en;
+    }
+
     // Function to create warning modal with passcode input
-    function createWarningModal(analysisResult: any, protectionType: 'website' | 'email' = 'website'): HTMLElement {
+    function createWarningModal(analysisResult: any, protectionType: 'website' | 'email' | 'social_media' = 'website'): HTMLElement {
       // Determine language from analysis result - prioritize target_language (user's choice)
       const language = analysisResult.target_language || analysisResult.detected_language || 'en';
-      const texts = protectionType === 'email' ? getEmailWarningModalTexts(language) : getWebsiteWarningModalTexts(language);
+      const texts = protectionType === 'email' ? getEmailWarningModalTexts(language) : 
+                   protectionType === 'social_media' ? getFacebookWarningModalTexts(language) :
+                   getWebsiteWarningModalTexts(language);
       
       const modalContainer = document.createElement('div');
       modalContainer.id = 'maiscam-warning-modal';
@@ -3997,8 +4101,10 @@ export default defineContentScript({
         if (!continueButton.disabled) {
           if (protectionType === 'email') {
             removeEmailProtection();
+          } else if (protectionType === 'social_media') {
+            removeFacebookProtection();
           } else {
-            removeWebsiteProtection();
+          removeWebsiteProtection();
           }
         }
       });
@@ -4030,14 +4136,16 @@ export default defineContentScript({
         transition: background-color 0.2s !important;
       `;
       leaveButton.addEventListener('click', () => {
-        // Clean up all modals before leaving
-        cleanupAllModals();
         if (protectionType === 'email') {
           // For email, just close the modal and remove protection
           removeEmailProtection();
+        } else if (protectionType === 'social_media') {
+          // For Facebook, keep the post blurred but allow user to continue using Facebook
+          keepFacebookPostBlurred();
         } else {
-          // For website, redirect to Google.com for safety
-          window.location.href = 'https://www.google.com';
+          // For website, clean up all modals and redirect to Google.com for safety
+        cleanupAllModals();
+        window.location.href = 'https://www.google.com';
         }
       });
       leaveButton.addEventListener('mouseover', () => {
@@ -4063,9 +4171,11 @@ export default defineContentScript({
       reportButton.addEventListener('click', () => {
         // Show different reporting message based on protection type
         alert(texts.reportMessage);
-        // You can implement different reporting functionality here for email vs website
+        // You can implement different reporting functionality here for email vs website vs social media
         if (protectionType === 'email') {
           console.log('📧 Email reported for investigation');
+        } else if (protectionType === 'social_media') {
+          console.log('📱 Facebook post reported for investigation');
         } else {
           console.log('🌐 Website reported for investigation');
         }
@@ -4170,13 +4280,145 @@ export default defineContentScript({
       }, 100);
     }
 
+    // Function to create post-specific blur overlay for Facebook posts
+    function createPostBlurOverlay(postElement: HTMLElement): HTMLElement {
+      const overlay = document.createElement('div');
+      overlay.id = 'maiscam-post-blur-overlay';
+      
+      // Make the post element relatively positioned if it's not already
+      const computedStyle = window.getComputedStyle(postElement);
+      if (computedStyle.position === 'static') {
+        // Store original position value so we can restore it later
+        postElement.setAttribute('data-original-position', 'static');
+        postElement.style.position = 'relative';
+      }
+      
+      // Create overlay that covers the entire post element
+      overlay.style.cssText = `
+        position: absolute !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        backdrop-filter: blur(20px) !important;
+        -webkit-backdrop-filter: blur(20px) !important;
+        background-color: rgba(0, 0, 0, 0.4) !important;
+        z-index: 999997 !important;
+        pointer-events: none !important;
+        border-radius: 8px !important;
+      `;
+      
+      return overlay;
+    }
+
+    // Function to find a specific Facebook post based on provided data
+    function findSpecificFacebookPost(postData: any): HTMLElement | null {
+      if (!postData) {
+        console.warn('❌ No post data provided to find specific Facebook post');
+        return null;
+      }
+      
+      const posts = findFacebookPosts();
+      
+      // Try to match based on the provided post data
+      for (const post of posts) {
+        const currentPostData = extractPostData(post);
+        if (currentPostData && 
+            currentPostData.username === postData.username &&
+            currentPostData.caption === postData.caption) {
+          console.log('🎯 Found matching Facebook post for blur protection');
+          console.log('🔍 Matched by username:', currentPostData.username);
+          console.log('🔍 Matched by caption:', currentPostData.caption.substring(0, 100) + '...');
+          return post.element;
+        }
+      }
+      
+      // Fallback: find the first post with an image (most likely candidate)
+      const postWithImage = posts.find(post => post.hasImage);
+      if (postWithImage) {
+        console.log('⚠️ Using fallback: first post with image for blur protection');
+        return postWithImage.element;
+      }
+      
+      console.warn('❌ Could not find Facebook post to blur');
+      return null;
+    }
+
+    // Function to find the specific Facebook post that was analyzed (legacy function for compatibility)
+    function findAnalyzedFacebookPost(): HTMLElement | null {
+      return findSpecificFacebookPost(facebookExtractionState.data);
+    }
+
+    // Function to show Facebook protection (blur specific post + modal)
+    function showFacebookProtection(analysisResult: any, specificPostData?: any) {
+      console.log('🛡️ Showing Facebook post protection for medium/high risk');
+      console.log('🔍 Facebook extraction state data:', facebookExtractionState.data);
+      console.log('🔍 Specific post data provided:', specificPostData);
+      
+      // Find the specific post to blur using provided post data or fallback to extraction state
+      const postDataToUse = specificPostData || facebookExtractionState.data;
+      console.log('🔍 Using post data for matching:', postDataToUse);
+      
+      const postToBlur = findSpecificFacebookPost(postDataToUse);
+      if (!postToBlur) {
+        console.error('❌ Cannot show Facebook protection: post not found');
+        console.log('🔍 Available posts on page:', findFacebookPosts().length);
+        // Fallback to regular modal
+        showAnalysisModal(analysisResult, false, 'social_media');
+        return;
+      }
+      
+      // Check if this specific post is already blurred
+      const existingOverlay = postToBlur.querySelector('#maiscam-post-blur-overlay');
+      if (existingOverlay) {
+        console.log('⚠️ This specific post is already blurred, showing modal only');
+        // Just show the modal for this already-blurred post
+        facebookWarningModal = createWarningModal(analysisResult, 'social_media');
+        document.body.appendChild(facebookWarningModal);
+        return;
+      }
+      
+      // Store reference to the post being blurred
+      blurredPostElement = postToBlur;
+      
+      // Clean up any existing warning modals (but preserve post blur overlays)
+      if (facebookWarningModal) {
+        facebookWarningModal.remove();
+        facebookWarningModal = null;
+      }
+      
+      // Clean up other modals but preserve Facebook post blurs
+      cleanupModalsExceptFacebookBlur();
+      
+      // Create and show post-specific blur overlay
+      facebookPostBlurOverlay = createPostBlurOverlay(postToBlur);
+      postToBlur.appendChild(facebookPostBlurOverlay);
+      
+      // Create and show warning modal
+      facebookWarningModal = createWarningModal(analysisResult, 'social_media');
+      document.body.appendChild(facebookWarningModal);
+      
+      // Update state - now we're tracking the most recent post being processed
+      isFacebookPostBlurred = true;
+      
+      // Additional cleanup after a short delay to catch any late-arriving modals
+      setTimeout(() => {
+        const existingModal = document.getElementById('maiscam-analysis-modal');
+        if (existingModal && existingModal !== facebookWarningModal) {
+          existingModal.remove();
+          console.log('🗑️ Removed late-arriving analysis modal');
+        }
+      }, 100);
+    }
+
     // Function to clean up all modals
     function cleanupAllModals() {
       // Remove all possible modal instances
       const modalSelectors = [
         '#maiscam-analysis-modal',
         '#maiscam-warning-modal',
-        '#maiscam-blur-overlay'
+        '#maiscam-blur-overlay',
+        '#maiscam-post-blur-overlay'
       ];
       
       modalSelectors.forEach(selector => {
@@ -4186,6 +4428,29 @@ export default defineContentScript({
           console.log(`🗑️ Removed modal: ${selector}`);
         }
       });
+    }
+
+    // Function to clean up modals but preserve Facebook post blur if needed
+    function cleanupModalsExceptFacebookBlur() {
+      // Remove modals but keep Facebook post blur overlay if it should stay
+      const modalSelectors = [
+        '#maiscam-analysis-modal',
+        '#maiscam-warning-modal',
+        '#maiscam-blur-overlay'
+        // Note: deliberately exclude '#maiscam-post-blur-overlay'
+      ];
+      
+      modalSelectors.forEach(selector => {
+        const modal = document.querySelector(selector);
+        if (modal) {
+          modal.remove();
+          console.log(`🗑️ Removed modal: ${selector}`);
+        }
+      });
+      
+      // Also check for post blur overlay in the entire document (in case it's nested)
+      // But only remove it if we're not trying to preserve it
+      // This function is called when we want to preserve it, so we skip this
     }
 
     // Function to remove website protection
@@ -4234,6 +4499,74 @@ export default defineContentScript({
       document.body.style.overflow = '';
       
       console.log('✅ Email protection removed successfully');
+    }
+
+    // Function to remove Facebook post protection
+    function removeFacebookProtection() {
+      console.log('🔓 Removing Facebook post protection - user acknowledged risk');
+      
+      if (facebookPostBlurOverlay) {
+        facebookPostBlurOverlay.remove();
+        facebookPostBlurOverlay = null;
+      }
+      
+      if (facebookWarningModal) {
+        facebookWarningModal.remove();
+        facebookWarningModal = null;
+      }
+      
+      // Restore original position style of the post element if we modified it
+      if (blurredPostElement) {
+        const originalPosition = blurredPostElement.getAttribute('data-original-position');
+        if (originalPosition) {
+          // Restore the original position value
+          if (originalPosition === 'static') {
+            blurredPostElement.style.position = '';
+          } else {
+            blurredPostElement.style.position = originalPosition;
+          }
+          blurredPostElement.removeAttribute('data-original-position');
+        }
+      }
+      
+      // Clean up all modals to ensure nothing is left behind
+      cleanupAllModals();
+      
+      isFacebookPostBlurred = false;
+      blurredPostElement = null;
+      
+      console.log('✅ Facebook post protection removed successfully');
+    }
+
+    // Function to keep Facebook post blurred (quit safely option)
+    function keepFacebookPostBlurred() {
+      console.log('🔒 Keeping Facebook post blurred - user chose to quit safely');
+      
+      // Clean up other modals but preserve the Facebook post blur
+      cleanupModalsExceptFacebookBlur();
+      
+      // Only remove the warning modal, keep the blur overlay
+      if (facebookWarningModal) {
+        facebookWarningModal.remove();
+        facebookWarningModal = null;
+      }
+      
+      // Keep the blur state active and the overlay intact
+      // isFacebookPostBlurred remains true
+      // facebookPostBlurOverlay remains in place
+      // blurredPostElement reference is preserved
+      
+      console.log('✅ Facebook post remains blurred, user can continue using Facebook safely');
+      console.log('🛡️ Blur overlay status:', !!facebookPostBlurOverlay);
+      console.log('🛡️ Blur state:', isFacebookPostBlurred);
+      
+      // Double-check that the blur overlay is still in the DOM
+      const overlayInDOM = document.getElementById('maiscam-post-blur-overlay');
+      console.log('🛡️ Blur overlay in DOM:', !!overlayInDOM);
+      if (!overlayInDOM && facebookPostBlurOverlay && blurredPostElement) {
+        console.warn('⚠️ Blur overlay reference exists but not in DOM - re-adding');
+        blurredPostElement.appendChild(facebookPostBlurOverlay);
+      }
     }
 
     // Start URL monitoring for better auto-detection
