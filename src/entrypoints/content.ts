@@ -3605,7 +3605,7 @@ export default defineContentScript({
 
     // Risk-based email protection system
     let isEmailBlurred = false;
-    let emailBlurOverlay: HTMLElement | null = null;
+    let emailBlurOverlays: HTMLElement[] = [];
     let emailWarningModal: HTMLElement | null = null;
 
     // Risk-based Facebook protection system
@@ -3633,7 +3633,7 @@ export default defineContentScript({
              mediumRiskPatterns.some(pattern => level.includes(pattern));
     }
 
-    // Function to create blur overlay
+    // Function to create blur overlay (for websites)
     function createBlurOverlay(): HTMLElement {
       const overlay = document.createElement('div');
       overlay.id = 'maiscam-blur-overlay';
@@ -3650,6 +3650,79 @@ export default defineContentScript({
         pointer-events: none !important;
       `;
       return overlay;
+    }
+
+    // Function to create email-specific blur overlays (for Gmail content only)
+    function createEmailBlurOverlay(): HTMLElement[] {
+      const overlays: HTMLElement[] = [];
+      
+      // Gmail email content selectors (same as used for content extraction)
+      const emailContentSelectors = [
+        '.ii.gt .a3s.aiL',           // Primary Gmail content
+        '.ii.gt div[dir="ltr"]',     // Gmail content with direction
+        '.a3s.aiL',                  // Alternative content
+        '[role="listitem"] .a3s.aiL', // List item content
+        '.Am .ii .a3s',              // Another content variant
+        '.message-content .a3s',     // Message content
+        '.ii.gt',                    // Broader content container
+        '[role="listitem"] div[dir="ltr"]' // List item with direction
+      ];
+
+      // Gmail email header selectors (for sender, subject, etc.)
+      const emailHeaderSelectors = [
+        '.gE',                       // Message header container
+        '.yW',                       // Sender area
+        '.go',                       // Sender info
+        '.adn',                      // Header details
+        '.afn',                      // Raw headers
+        '.qu',                       // Quoted content headers
+        '[role="listitem"] .gE',     // List item headers
+        '.message-headers'           // Message headers
+      ];
+
+      // Combine all selectors
+      const allSelectors = [...emailContentSelectors, ...emailHeaderSelectors];
+      
+      // Create blur overlay for each found element
+      allSelectors.forEach((selector, index) => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach((element, elementIndex) => {
+          const htmlElement = element as HTMLElement;
+          // Only blur visible elements
+          if (htmlElement.offsetWidth > 0 && htmlElement.offsetHeight > 0) {
+            const overlay = document.createElement('div');
+            overlay.className = 'maiscam-email-blur-overlay';
+            overlay.id = `maiscam-email-blur-${index}-${elementIndex}`;
+            
+            // Make the element relatively positioned if it's not already
+            const computedStyle = window.getComputedStyle(htmlElement);
+            if (computedStyle.position === 'static') {
+              htmlElement.setAttribute('data-original-position', 'static');
+              htmlElement.style.position = 'relative';
+            }
+            
+            overlay.style.cssText = `
+              position: absolute !important;
+              top: 0 !important;
+              left: 0 !important;
+              width: 100% !important;
+              height: 100% !important;
+              backdrop-filter: blur(10px) !important;
+              -webkit-backdrop-filter: blur(10px) !important;
+              background-color: rgba(0, 0, 0, 0.3) !important;
+              z-index: 999998 !important;
+              pointer-events: none !important;
+              border-radius: inherit !important;
+            `;
+            
+            htmlElement.appendChild(overlay);
+            overlays.push(overlay);
+          }
+        });
+      });
+      
+      console.log(`🔒 Created ${overlays.length} email blur overlays for Gmail content`);
+      return overlays;
     }
 
     // Multilingual text for warning modal - website version
@@ -3740,7 +3813,7 @@ export default defineContentScript({
           proceedText: 'If you understand the risks and still wish to continue, type "I UNDERSTAND" below:',
           placeholder: 'Type "I UNDERSTAND" to continue',
           continueButton: 'CONTINUE WITH EMAIL',
-          leaveButton: '🚪 CLOSE EMAIL',
+          leaveButton: '🔒 CONTINUE WITH BLUR',
           reportButton: '📢 REPORT EMAIL',
           reportMessage: 'Thank you for reporting this email. We will investigate it.',
           footer: 'Protected by mAIscam Browser Extension',
@@ -3754,7 +3827,7 @@ export default defineContentScript({
           proceedText: '如果您了解风险并仍希望继续，请在下方输入"我明白"：',
           placeholder: '输入"我明白"以继续',
           continueButton: '继续查看邮件',
-          leaveButton: '🚪 关闭邮件',
+          leaveButton: '🔒 继续模糊显示',
           reportButton: '📢 举报邮件',
           reportMessage: '感谢您举报此邮件。我们将对其进行调查。',
           footer: 'mAIscam 浏览器扩展保护',
@@ -3768,7 +3841,7 @@ export default defineContentScript({
           proceedText: 'Jika anda memahami risiko dan masih ingin meneruskan, taip "SAYA FAHAM" di bawah:',
           placeholder: 'Taip "SAYA FAHAM" untuk meneruskan',
           continueButton: 'TERUSKAN DENGAN E-MEL',
-          leaveButton: '🚪 TUTUP E-MEL',
+          leaveButton: '🔒 TERUSKAN DENGAN KABUR',
           reportButton: '📢 LAPORKAN E-MEL',
           reportMessage: 'Terima kasih kerana melaporkan e-mel ini. Kami akan menyiasatnya.',
           footer: 'Dilindungi oleh Sambungan Pelayar mAIscam',
@@ -3782,7 +3855,7 @@ export default defineContentScript({
           proceedText: 'Nếu bạn hiểu rủi ro và vẫn muốn tiếp tục, hãy gõ "TÔI HIỂU" bên dưới:',
           placeholder: 'Gõ "TÔI HIỂU" để tiếp tục',
           continueButton: 'TIẾP TỤC VỚI EMAIL',
-          leaveButton: '🚪 ĐÓNG EMAIL',
+          leaveButton: '🔒 TIẾP TỤC VỚI MỜ',
           reportButton: '📢 BÁO CÁO EMAIL',
           reportMessage: 'Cảm ơn bạn đã báo cáo email này. Chúng tôi sẽ điều tra.',
           footer: 'Được bảo vệ bởi Tiện ích mở rộng mAIscam',
@@ -3796,7 +3869,7 @@ export default defineContentScript({
           proceedText: 'หากคุณเข้าใจความเสี่ยงและยังคงต้องการดำเนินการต่อ ให้พิมพ์ "ฉันเข้าใจ" ด้านล่าง:',
           placeholder: 'พิมพ์ "ฉันเข้าใจ" เพื่อดำเนินการต่อ',
           continueButton: 'ดำเนินการต่อกับอีเมล',
-          leaveButton: '🚪 ปิดอีเมล',
+          leaveButton: '🔒 ดำเนินการต่อด้วยการเบลอ',
           reportButton: '📢 รายงานอีเมล',
           reportMessage: 'ขอบคุณสำหรับการรายงานอีเมลนี้ เราจะตรวจสอบ',
           footer: 'ได้รับการปกป้องโดย mAIscam Browser Extension',
@@ -4137,8 +4210,8 @@ export default defineContentScript({
       `;
       leaveButton.addEventListener('click', () => {
         if (protectionType === 'email') {
-          // For email, just close the modal and remove protection
-          removeEmailProtection();
+          // For email, keep the email blurred but allow user to continue using Gmail
+          keepEmailBlurred();
         } else if (protectionType === 'social_media') {
           // For Facebook, keep the post blurred but allow user to continue using Facebook
           keepFacebookPostBlurred();
@@ -4257,9 +4330,8 @@ export default defineContentScript({
       // Clean up any existing modals first (including loading states)
       cleanupAllModals();
       
-      // Create and show blur overlay
-      emailBlurOverlay = createBlurOverlay();
-      document.body.appendChild(emailBlurOverlay);
+      // Create and show email-specific blur overlays
+      emailBlurOverlays = createEmailBlurOverlay();
       
       // Create and show warning modal
       emailWarningModal = createWarningModal(analysisResult, 'email');
@@ -4267,8 +4339,7 @@ export default defineContentScript({
       
       isEmailBlurred = true;
       
-      // Prevent scrolling
-      document.body.style.overflow = 'hidden';
+      // Don't prevent scrolling since we're only blurring email content, not the whole page
       
       // Additional cleanup after a short delay to catch any late-arriving modals
       setTimeout(() => {
@@ -4480,10 +4551,20 @@ export default defineContentScript({
     function removeEmailProtection() {
       console.log('🔓 Removing email protection - user acknowledged risk');
       
-      if (emailBlurOverlay) {
-        emailBlurOverlay.remove();
-        emailBlurOverlay = null;
-      }
+      // Remove all email blur overlays and restore original positions
+      emailBlurOverlays.forEach(overlay => {
+        const parent = overlay.parentElement;
+        if (parent) {
+          // Restore original position style if we modified it
+          const originalPosition = parent.getAttribute('data-original-position');
+          if (originalPosition) {
+            parent.style.position = originalPosition;
+            parent.removeAttribute('data-original-position');
+          }
+        }
+        overlay.remove();
+      });
+      emailBlurOverlays = [];
       
       if (emailWarningModal) {
         emailWarningModal.remove();
@@ -4566,6 +4647,39 @@ export default defineContentScript({
       if (!overlayInDOM && facebookPostBlurOverlay && blurredPostElement) {
         console.warn('⚠️ Blur overlay reference exists but not in DOM - re-adding');
         blurredPostElement.appendChild(facebookPostBlurOverlay);
+      }
+    }
+
+    // Function to keep email blurred (continue to blur option)
+    function keepEmailBlurred() {
+      console.log('🔒 Keeping email blurred - user chose to continue with blur');
+      
+      // Only remove the warning modal, keep the blur overlays
+      if (emailWarningModal) {
+        emailWarningModal.remove();
+        emailWarningModal = null;
+      }
+      
+      // Keep the blur state active and the overlays intact
+      // isEmailBlurred remains true
+      // emailBlurOverlays remain in place
+      // Don't disable body scroll since we're only blurring email content, not the whole page
+      
+      console.log('✅ Email remains blurred, user can continue using Gmail safely');
+      console.log('🛡️ Email blur overlays count:', emailBlurOverlays.length);
+      console.log('🛡️ Email blur state:', isEmailBlurred);
+      
+      // Double-check that the blur overlays are still in the DOM
+      const overlaysInDOM = document.querySelectorAll('.maiscam-email-blur-overlay');
+      console.log('🛡️ Email blur overlays in DOM:', overlaysInDOM.length);
+      
+      // Re-add any missing overlays
+      if (overlaysInDOM.length < emailBlurOverlays.length) {
+        console.warn('⚠️ Some email blur overlays missing from DOM - recreating all');
+        // Remove existing overlays first
+        emailBlurOverlays.forEach(overlay => overlay.remove());
+        // Recreate all overlays
+        emailBlurOverlays = createEmailBlurOverlay();
       }
     }
 
