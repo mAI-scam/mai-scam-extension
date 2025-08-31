@@ -4293,6 +4293,8 @@ export default defineContentScript({
         margin: 0 !important;
         font-size: 24px !important;
         font-weight: 700 !important;
+        color: white !important;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3) !important;
       `;
       title.textContent = texts.title;
       
@@ -4300,7 +4302,9 @@ export default defineContentScript({
       subtitle.style.cssText = `
         margin: 8px 0 0 0 !important;
         font-size: 14px !important;
-        opacity: 0.9 !important;
+        color: white !important;
+        opacity: 0.95 !important;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3) !important;
       `;
       subtitle.textContent = texts.subtitle;
       

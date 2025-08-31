@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { analyzeEmailWithBackend, analyzeWebsiteWithBackend, analyzeSocialMediaWithBackend, submitScamReport, SocialMediaAnalysisRequest, ScamReportRequest, EmailScamReportData, WebsiteScamReportData, SocialMediaScamReportData } from '../../utils/backendApi';
 import { detectSiteType, getSiteTypeDisplayName, type SiteDetectionResult } from '../../utils/urlDetection';
-import { addAnalysisToHistory } from '../../utils/storageManager';
 
 interface GmailData {
   subject: string;
@@ -151,6 +150,14 @@ const getReportText = (language: string, key: string): string => {
   };
   
   return reportTexts[language]?.[key] || reportTexts.en[key] || key;
+};
+
+// Helper function to check if risk level requires reporting
+const shouldShowReportFunction = (analysisResult: any): boolean => {
+  if (!analysisResult) return false;
+  
+  const riskLevel = analysisResult.risk_level?.toLowerCase();
+  return riskLevel === 'medium' || riskLevel === 'high';
 };
 
 function App() {
@@ -1160,446 +1167,69 @@ function App() {
             </div>
           )}
 
-          {/* Extracted Email Data Display */}
-          {extractedData ? (
-            <div className="space-y-4">
-              <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-green-600">✅</span>
-                  <h3 className="font-semibold text-green-800">Email Content Extracted</h3>
-                </div>
-                <p className="text-xs text-green-600">
-                  Content extracted and analyzed using backend API in{' '}
-                  <span className="font-medium">
-                    {LANGUAGE_OPTIONS.find(lang => lang.code === selectedLanguage)?.name || selectedLanguage}
-                  </span>
-                  <br />
-                  <span className="text-gray-500 mt-1">Analysis results displayed in modal on the website!</span>
-                </p>
-              </div>
+          {/* Extracted Data Display - All removed for cleaner UI, data still extracted and logged to console */}
 
-              <div className="space-y-3">
-                <div className="bg-white p-3 rounded-lg shadow-sm border">
-                  <h4 className="font-semibold text-gray-700 mb-2 text-sm">📧 Subject</h4>
-                  <p className="text-sm text-gray-600 break-words">{extractedData.subject}</p>
-                </div>
-
-                <div className="bg-white p-3 rounded-lg shadow-sm border">
-                  <h4 className="font-semibold text-gray-700 mb-2 text-sm">👤 From</h4>
-                  <p className="text-sm text-gray-600 break-words">{extractedData.from}</p>
-                </div>
-
-                <div className="bg-white p-3 rounded-lg shadow-sm border">
-                  <h4 className="font-semibold text-gray-700 mb-2 text-sm">📧 Reply-To</h4>
-                  <p className="text-sm text-gray-600 break-words">{extractedData.replyTo}</p>
-                </div>
-
-                <div className="bg-white p-3 rounded-lg shadow-sm border">
-                  <h4 className="font-semibold text-gray-700 mb-2 text-sm">📄 Content Preview</h4>
-                  <div className="text-sm text-gray-600 max-h-32 overflow-y-auto break-words bg-gray-50 p-2 rounded border">
-                    <pre className="whitespace-pre-wrap font-sans text-xs">
-                      {extractedData.content.length > 300 
-                        ? extractedData.content.substring(0, 300) + '...' 
-                        : extractedData.content}
-                    </pre>
-                  </div>
-                  {extractedData.content.length > 300 && (
-                    <p className="text-xs text-gray-500 mt-1">Content truncated for display</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          {/* Extracted Website Data Display */}
-          {websiteData ? (
-            <div className="space-y-4">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-blue-600">✅</span>
-                  <h3 className="font-semibold text-blue-800">Website Content Extracted</h3>
-                </div>
-                <p className="text-xs text-blue-600">
-                  Content extracted and analyzed using backend API in{' '}
-                  <span className="font-medium">
-                    {LANGUAGE_OPTIONS.find(lang => lang.code === selectedLanguage)?.name || selectedLanguage}
-                  </span>
-                  <br />
-                  <span className="text-gray-500 mt-1">Analysis results displayed in modal on the website!</span>
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <div className="bg-white p-3 rounded-lg shadow-sm border">
-                  <h4 className="font-semibold text-gray-700 mb-2 text-sm">🔗 URL</h4>
-                  <p className="text-sm text-gray-600 break-all">{websiteData.url}</p>
-                </div>
-
-                <div className="bg-white p-3 rounded-lg shadow-sm border">
-                  <h4 className="font-semibold text-gray-700 mb-2 text-sm">📝 Title</h4>
-                  <p className="text-sm text-gray-600 break-words">{websiteData.title}</p>
-                </div>
-
-                <div className="bg-white p-3 rounded-lg shadow-sm border">
-                  <h4 className="font-semibold text-gray-700 mb-2 text-sm">🌐 Domain & Security</h4>
-                  <div className="space-y-1">
-                    <p className="text-sm text-gray-600">{websiteData.metadata.domain}</p>
-                    {websiteData.metadata.ssl && (
-                      <p className="text-xs text-gray-500">
-                        🔒 {websiteData.metadata.ssl.isSecure ? 'Secure (HTTPS)' : 'Not Secure (HTTP)'}
-                      </p>
-                    )}
-                    {websiteData.metadata.links && (
-                      <p className="text-xs text-gray-500">
-                        🔗 {websiteData.metadata.links.externalLinksCount} external links
-                        {websiteData.metadata.links.suspiciousLinks.length > 0 && 
-                          `, ${websiteData.metadata.links.suspiciousLinks.length} suspicious`
-                        }
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {websiteData.metadata.description && (
-                  <div className="bg-white p-3 rounded-lg shadow-sm border">
-                    <h4 className="font-semibold text-gray-700 mb-2 text-sm">📄 Description</h4>
-                    <p className="text-sm text-gray-600 break-words">{websiteData.metadata.description}</p>
-                  </div>
-                )}
-
-                {websiteData.metadata.keywords && (
-                  <div className="bg-white p-3 rounded-lg shadow-sm border">
-                    <h4 className="font-semibold text-gray-700 mb-2 text-sm">🏷️ Keywords</h4>
-                    <p className="text-sm text-gray-600 break-words">{websiteData.metadata.keywords}</p>
-                  </div>
-                )}
-
-                {(websiteData.metadata.social?.ogTitle || websiteData.metadata.technical?.generator) && (
-                  <div className="bg-white p-3 rounded-lg shadow-sm border">
-                    <h4 className="font-semibold text-gray-700 mb-2 text-sm">🔧 Technical Info</h4>
-                    <div className="space-y-1 text-xs text-gray-500">
-                      {websiteData.metadata.social?.ogTitle && (
-                        <p>📱 Social Title: {websiteData.metadata.social.ogTitle}</p>
-                      )}
-                      {websiteData.metadata.technical?.generator && (
-                        <p>⚙️ Generator: {websiteData.metadata.technical.generator}</p>
-                      )}
-                      {websiteData.metadata.technical?.language && (
-                        <p>🌐 Language: {websiteData.metadata.technical.language}</p>
-                      )}
-                      {websiteData.metadata.security && (
-                        <p>🛡️ Security Headers: {Object.values(websiteData.metadata.security).filter(Boolean).length} detected</p>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                <div className="bg-white p-3 rounded-lg shadow-sm border">
-                  <h4 className="font-semibold text-gray-700 mb-2 text-sm">📄 Page Content</h4>
-                  <div className="text-sm text-gray-600 max-h-32 overflow-y-auto break-words bg-gray-50 p-2 rounded border">
-                    <pre className="whitespace-pre-wrap font-sans text-xs">
-                      {websiteData.content.length > 400 
-                        ? websiteData.content.substring(0, 400) + '...' 
-                        : websiteData.content}
-                    </pre>
-                  </div>
-                  {websiteData.content.length > 400 && (
-                    <p className="text-xs text-gray-500 mt-1">Content truncated for display</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          {/* Extracted Facebook Data Display */}
-          {facebookData ? (
-            <div className="space-y-4">
-              <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-purple-600">✅</span>
-                  <h3 className="font-semibold text-purple-800">Facebook Post Data Extracted</h3>
-                </div>
-                <p className="text-xs text-purple-600">
-                  Facebook post information successfully captured and analyzed in{' '}
-                  <span className="font-medium">
-                    {LANGUAGE_OPTIONS.find(lang => lang.code === selectedLanguage)?.name || selectedLanguage}
-                  </span>
-                  <br />
-                  <span className="text-gray-500 mt-1">Analysis results displayed in modal on the website!</span>
-                </p>
-              </div>
-
-              {/* Backend Request Data Display */}
-              {backendRequestData && backendRequestData.type === 'social_media' && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-blue-600">🔍</span>
-                    <h3 className="font-semibold text-blue-800">Data Sent to Backend</h3>
-                  </div>
-                  <p className="text-xs text-blue-600 mb-3">Complete data payload sent for analysis ({new Date(backendRequestData.timestamp).toLocaleTimeString()})</p>
-                  
-                  <div className="bg-white p-3 rounded border max-h-64 overflow-y-auto">
-                    <div className="grid grid-cols-1 gap-2 text-xs">
-                      <div className="grid grid-cols-3 gap-2 font-semibold text-gray-700 border-b pb-1">
-                        <span>Field</span>
-                        <span>Type</span>
-                        <span>Value</span>
-                      </div>
-                      
-                      <div className="grid grid-cols-3 gap-2 text-gray-600">
-                        <span className="text-blue-600 font-medium">platform</span>
-                        <span className="text-gray-500">string</span>
-                        <span className="break-words">{backendRequestData.data.platform}</span>
-                      </div>
-                      
-                      <div className="grid grid-cols-3 gap-2 text-gray-600">
-                        <span className="text-blue-600 font-medium">author_username</span>
-                        <span className="text-gray-500">string</span>
-                        <span className="break-words">{backendRequestData.data.author_username}</span>
-                      </div>
-                      
-                      <div className="grid grid-cols-3 gap-2 text-gray-600">
-                        <span className="text-blue-600 font-medium">content</span>
-                        <span className="text-gray-500">string</span>
-                        <span className="break-words">{backendRequestData.data.content?.length > 50 ? backendRequestData.data.content.substring(0, 50) + '...' : backendRequestData.data.content}</span>
-                      </div>
-                      
-                      <div className="grid grid-cols-3 gap-2 text-gray-600">
-                        <span className="text-blue-600 font-medium">target_language</span>
-                        <span className="text-gray-500">string</span>
-                        <span className="break-words">{backendRequestData.data.target_language}</span>
-                      </div>
-                      
-                      <div className="grid grid-cols-3 gap-2 text-gray-600">
-                        <span className="text-blue-600 font-medium">post_url</span>
-                        <span className="text-gray-500">string</span>
-                        <span className="break-words">{backendRequestData.data.post_url?.length > 30 ? backendRequestData.data.post_url.substring(0, 30) + '...' : backendRequestData.data.post_url}</span>
-                      </div>
-                      
-                      <div className="grid grid-cols-3 gap-2 text-gray-600">
-                        <span className="text-blue-600 font-medium">image</span>
-                        <span className="text-gray-500">string?</span>
-                        <span className="break-words">
-                          {backendRequestData.data.image ? (
-                            <span className="text-green-600">✅ Base64 encoded ({backendRequestData.data.image.length} chars)</span>
-                          ) : (
-                            <span className="text-gray-500">❌ null</span>
-                          )}
-                        </span>
-                      </div>
-                      
-                      <div className="grid grid-cols-3 gap-2 text-gray-600">
-                        <span className="text-blue-600 font-medium">author_followers_count</span>
-                        <span className="text-gray-500">number?</span>
-                        <span className="break-words">
-                          {backendRequestData.data.author_followers_count !== undefined ? (
-                            <span className="text-green-600">✅ {backendRequestData.data.author_followers_count.toLocaleString()}</span>
-                          ) : (
-                            <span className="text-red-500">❌ null (not extracted)</span>
-                          )}
-                        </span>
-                      </div>
-                      
-                      <div className="grid grid-cols-3 gap-2 text-gray-600">
-                        <span className="text-blue-600 font-medium">engagement_metrics</span>
-                        <span className="text-gray-500">object?</span>
-                        <span className="break-words">
-                          {backendRequestData.data.engagement_metrics && Object.keys(backendRequestData.data.engagement_metrics).length > 0 ? (
-                            <div className="text-xs">
-                              {Object.entries(backendRequestData.data.engagement_metrics).map(([key, value]) => (
-                                <div key={key} className="text-green-600">
-                                  ✅ {key}: {typeof value === 'number' ? value.toLocaleString() : String(value)}
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-red-500">❌ null (not extracted)</span>
-                          )}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="mt-2 text-xs text-blue-600">
-                    <strong>API Endpoint:</strong> /socialmedia/v2/analyze
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-3">
-                <div className="bg-white p-3 rounded-lg shadow-sm border">
-                  <h4 className="font-semibold text-gray-700 mb-2 text-sm">👤 Username</h4>
-                  <p className="text-sm text-gray-600 break-words">{facebookData.username}</p>
-                </div>
-
-                <div className="bg-white p-3 rounded-lg shadow-sm border">
-                  <h4 className="font-semibold text-gray-700 mb-2 text-sm">📝 Caption</h4>
-                  <div className="text-sm text-gray-600 max-h-32 overflow-y-auto break-words bg-gray-50 p-2 rounded border">
-                    <pre className="whitespace-pre-wrap font-sans text-xs">
-                      {facebookData.caption.length > 300 
-                        ? facebookData.caption.substring(0, 300) + '...' 
-                        : facebookData.caption}
-                    </pre>
-                  </div>
-                  {facebookData.caption.length > 300 && (
-                    <p className="text-xs text-gray-500 mt-1">Caption truncated for display</p>
-                  )}
-                </div>
-
-                <div className="bg-white p-3 rounded-lg shadow-sm border">
-                  <h4 className="font-semibold text-gray-700 mb-2 text-sm">🔗 Post URL</h4>
-                  <p className="text-sm text-gray-600 break-all">{facebookData.postUrl}</p>
-                </div>
-
-                {facebookData.timestamp && (
-                  <div className="bg-white p-3 rounded-lg shadow-sm border">
-                    <h4 className="font-semibold text-gray-700 mb-2 text-sm">⏰ Timestamp</h4>
-                    <p className="text-sm text-gray-600">{facebookData.timestamp}</p>
-                  </div>
-                )}
-
-                {facebookData.image && (
-                  <div className="bg-white p-3 rounded-lg shadow-sm border">
-                    <h4 className="font-semibold text-gray-700 mb-2 text-sm">🖼️ Post Image</h4>
-                    <img 
-                      src={facebookData.image} 
-                      alt="Facebook post image" 
-                      className="w-full rounded border max-h-64 object-cover"
-                    />
-                  </div>
-                )}
-
-                {facebookData.author_followers_count !== undefined && (
-                  <div className="bg-white p-3 rounded-lg shadow-sm border">
-                    <h4 className="font-semibold text-gray-700 mb-2 text-sm">👥 Followers</h4>
-                    <p className="text-sm text-gray-600">{facebookData.author_followers_count.toLocaleString()}</p>
-                  </div>
-                )}
-
-                {facebookData.engagement_metrics && Object.keys(facebookData.engagement_metrics).length > 0 && (
-                  <div className="bg-white p-3 rounded-lg shadow-sm border">
-                    <h4 className="font-semibold text-gray-700 mb-2 text-sm">📊 Engagement Metrics</h4>
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      {facebookData.engagement_metrics.likes !== undefined && (
-                        <div className="bg-gray-50 p-2 rounded border">
-                          <span className="font-medium text-gray-600">👍 Likes:</span>
-                          <span className="ml-1 text-gray-800">{facebookData.engagement_metrics.likes.toLocaleString()}</span>
-                        </div>
-                      )}
-                      {facebookData.engagement_metrics.comments !== undefined && (
-                        <div className="bg-gray-50 p-2 rounded border">
-                          <span className="font-medium text-gray-600">💬 Comments:</span>
-                          <span className="ml-1 text-gray-800">{facebookData.engagement_metrics.comments.toLocaleString()}</span>
-                        </div>
-                      )}
-                      {facebookData.engagement_metrics.shares !== undefined && (
-                        <div className="bg-gray-50 p-2 rounded border">
-                          <span className="font-medium text-gray-600">🔄 Shares:</span>
-                          <span className="ml-1 text-gray-800">{facebookData.engagement_metrics.shares.toLocaleString()}</span>
-                        </div>
-                      )}
-                      {facebookData.engagement_metrics.reactions !== undefined && (
-                        <div className="bg-gray-50 p-2 rounded border">
-                          <span className="font-medium text-gray-600">😊 Reactions:</span>
-                          <span className="ml-1 text-gray-800">{facebookData.engagement_metrics.reactions.toLocaleString()}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : null}
-
-          {/* Report Section - Show when we have analysis results */}
-          {analysisResult && (extractedData || websiteData || facebookData) && (
+          {/* Report Section - Show only report functionality when medium/high risk is detected */}
+          {analysisResult && (extractedData || websiteData || facebookData) && shouldShowReportFunction(analysisResult) && (
             <div className="space-y-4">
               <div className="bg-red-50 border border-red-200 rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-3">
-                  <span className="text-red-600">🚨</span>
-                  <h3 className="font-semibold text-red-800">Scam Detection Results</h3>
+                  <span className="text-red-600">📢</span>
+                  <h3 className="font-semibold text-red-800">Report Scam to Authorities</h3>
                 </div>
                 
-                <div className="space-y-3">
-                  <div className="bg-white p-3 rounded-lg border border-red-200">
-                    <h4 className="font-semibold text-gray-700 mb-2 text-sm">⚠️ Risk Level</h4>
-                    <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
-                      analysisResult.risk_level === 'high' ? 'bg-red-100 text-red-800' :
-                      analysisResult.risk_level === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-green-100 text-green-800'
-                    }`}>
-                      {analysisResult.risk_level?.toUpperCase() || 'UNKNOWN'}
-                    </span>
-                  </div>
-
-                  <div className="bg-white p-3 rounded-lg border border-red-200">
-                    <h4 className="font-semibold text-gray-700 mb-2 text-sm">🔍 Analysis</h4>
-                    <p className="text-sm text-gray-600 whitespace-pre-wrap">{analysisResult.analysis}</p>
-                  </div>
-
-                  <div className="bg-white p-3 rounded-lg border border-red-200">
-                    <h4 className="font-semibold text-gray-700 mb-2 text-sm">💡 Recommended Action</h4>
-                    <p className="text-sm text-gray-600 whitespace-pre-wrap">{analysisResult.recommended_action}</p>
-                  </div>
+                <div className="text-center">
+                  <p className="text-sm text-red-700 mb-3">
+                    🚨 <strong>{getReportText(selectedLanguage, 'detected')}</strong> {getReportText(selectedLanguage, 'question')}
+                  </p>
+                  <button
+                    onClick={() => handleSubmitReport(scanMode as 'email' | 'website' | 'socialmedia')}
+                    disabled={reportLoading}
+                    className="w-full px-4 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+                  >
+                    {reportLoading ? (
+                      <>
+                        <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        {getReportText(selectedLanguage, 'reporting')}
+                      </>
+                    ) : (
+                      <>
+                        📢 {getReportText(selectedLanguage, 'button')}
+                      </>
+                    )}
+                  </button>
                 </div>
 
-                {/* Report Button */}
-                <div className="mt-4 pt-3 border-t border-red-200">
-                  <div className="flex flex-col gap-3">
-                    <div className="text-center">
-                      <p className="text-sm text-red-700 mb-2">
-                        🚨 <strong>{getReportText(selectedLanguage, 'detected')}</strong> {getReportText(selectedLanguage, 'question')}
-                      </p>
-                      <button
-                        onClick={() => handleSubmitReport(scanMode as 'email' | 'website' | 'socialmedia')}
-                        disabled={reportLoading}
-                        className="w-full px-4 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-                      >
-                        {reportLoading ? (
-                          <>
-                            <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            {getReportText(selectedLanguage, 'reporting')}
-                          </>
-                        ) : (
-                          <>
-                            📢 {getReportText(selectedLanguage, 'button')}
-                          </>
-                        )}
-                      </button>
+                {/* Report Status Messages */}
+                {reportSuccess && (
+                  <div className="bg-green-100 border border-green-300 rounded-lg p-3 mt-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-green-600">✅</span>
+                      <p className="text-sm text-green-700 font-medium">Report Submitted Successfully!</p>
                     </div>
-
-                    {/* Report Status Messages */}
-                    {reportSuccess && (
-                      <div className="bg-green-100 border border-green-300 rounded-lg p-3">
-                        <div className="flex items-center gap-2">
-                          <span className="text-green-600">✅</span>
-                          <p className="text-sm text-green-700 font-medium">Report Submitted Successfully!</p>
-                        </div>
-                        <p className="text-xs text-green-600 mt-1">{reportSuccess}</p>
-                      </div>
-                    )}
-
-                    {reportError && (
-                      <div className="bg-red-100 border border-red-300 rounded-lg p-3">
-                        <div className="flex items-center gap-2">
-                          <span className="text-red-600">❌</span>
-                          <p className="text-sm text-red-700 font-medium">Report Failed</p>
-                        </div>
-                        <p className="text-xs text-red-600 mt-1">{reportError}</p>
-                        <button
-                          onClick={() => handleSubmitReport(scanMode as 'email' | 'website' | 'socialmedia')}
-                          disabled={reportLoading}
-                          className="mt-2 text-xs bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700 disabled:opacity-50 transition-colors"
-                        >
-                          Try Again
-                        </button>
-                      </div>
-                    )}
+                    <p className="text-xs text-green-600 mt-1">{reportSuccess}</p>
                   </div>
-                </div>
+                )}
+
+                {reportError && (
+                  <div className="bg-red-100 border border-red-300 rounded-lg p-3 mt-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-red-600">❌</span>
+                      <p className="text-sm text-red-700 font-medium">Report Failed</p>
+                    </div>
+                    <p className="text-xs text-red-600 mt-1">{reportError}</p>
+                    <button
+                      onClick={() => handleSubmitReport(scanMode as 'email' | 'website' | 'socialmedia')}
+                      disabled={reportLoading}
+                      className="mt-2 text-xs bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700 disabled:opacity-50 transition-colors"
+                    >
+                      Try Again
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
