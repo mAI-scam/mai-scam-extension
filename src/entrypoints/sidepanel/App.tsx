@@ -146,6 +146,94 @@ const getReportText = (language: string, key: string): string => {
       failed: 'รายงานล้มเหลว',
       close: 'ปิด',
       tryAgain: 'ลองใหม่'
+    },
+    fil: {
+      detected: 'Natuklasan ang posibleng scam!',
+      question: 'Iulat ba ito sa mga awtoridad?',
+      button: 'Iulat sa mga Awtoridad',
+      reporting: 'Nag-uulat...',
+      success: 'Matagumpay na Naipadala ang Ulat!',
+      successMessage: 'Salamat sa pag-ulat. Ang inyong ulat ay naipadala na sa mga awtoridad na may ID:',
+      failed: 'Nabigo ang Ulat',
+      close: 'Isara',
+      tryAgain: 'Subukan Muli'
+    },
+    id: {
+      detected: 'Penipuan potensial terdeteksi!',
+      question: 'Laporkan ke pihak berwenang?',
+      button: 'Laporkan ke Pihak Berwenang',
+      reporting: 'Melaporkan...',
+      success: 'Laporan Berhasil Dikirim!',
+      successMessage: 'Terima kasih telah melaporkan. Laporan Anda telah dikirim ke pihak berwenang dengan ID:',
+      failed: 'Laporan Gagal',
+      close: 'Tutup',
+      tryAgain: 'Coba Lagi'
+    },
+    jv: {
+      detected: 'Penipuan potensial katemokake!',
+      question: 'Lapokno menyang panguwasa?',
+      button: 'Lapokno menyang Panguwasa',
+      reporting: 'Nglapokake...',
+      success: 'Laporan Kasil Dikirim!',
+      successMessage: 'Matur nuwun sampun nglapokake. Laporan sampeyan wis dikirim menyang panguwasa kanthi ID:',
+      failed: 'Laporan Gagal',
+      close: 'Tutup',
+      tryAgain: 'Coba Maneh'
+    },
+    su: {
+      detected: 'Panipuan poténsial kadeteksi!',
+      question: 'Laporkeun ka otoritas?',
+      button: 'Laporkeun ka Otoritas',
+      reporting: 'Ngalaporkeun...',
+      success: 'Laporan Hasil Dikirim!',
+      successMessage: 'Hatur nuhun parantos ngalaporkeun. Laporan anjeun parantos dikirim ka otoritas kalayan ID:',
+      failed: 'Laporan Gagal',
+      close: 'Tutup',
+      tryAgain: 'Coba Deui'
+    },
+    km: {
+      detected: 'រកឃើញការបន្លំដែលអាចកើតឡើង!',
+      question: 'រាយការណ៍ទៅអាជ្ញាធរ?',
+      button: 'រាយការណ៍ទៅអាជ្ញាធរ',
+      reporting: 'កំពុងរាយការណ៍...',
+      success: 'រាយការណ៍បានផ្ញើដោយជោគជ័យ!',
+      successMessage: 'សូមអរគុណសម្រាប់ការរាយការណ៍។ រាយការណ៍របស់អ្នកត្រូវបានផ្ញើទៅអាជ្ញាធរហើយជាមួយ ID:',
+      failed: 'រាយការណ៍បរាជ័យ',
+      close: 'បិទ',
+      tryAgain: 'ព្យាយាមម្ដងទៀត'
+    },
+    lo: {
+      detected: 'ພົບເຫັນການຫລອກລວງທີ່ເປັນໄປໄດ້!',
+      question: 'ລາຍງານໄປຫາເຈົ້າໜ້າທີ່?',
+      button: 'ລາຍງານໄປຫາເຈົ້າໜ້າທີ່',
+      reporting: 'ກຳລັງລາຍງານ...',
+      success: 'ສົ່ງລາຍງານສຳເລັດແລ້ວ!',
+      successMessage: 'ຂອບໃຈທີ່ລາຍງານ. ລາຍງານຂອງທ່ານໄດ້ຖືກສົ່ງໄປຫາເຈົ້າໜ້າທີ່ແລ້ວພ້ອມ ID:',
+      failed: 'ລາຍງານລົ້ມເຫລວ',
+      close: 'ປິດ',
+      tryAgain: 'ລອງໃໝ່'
+    },
+    my: {
+      detected: 'လိမ်လည်မှုဖြစ်နိုင်ချေကို တွေ့ရှိရပါသည်!',
+      question: 'အာဏာပိုင်များထံ တိုင်ကြားမည်လား?',
+      button: 'အာဏာပိုင်များထံ တိုင်ကြားရန်',
+      reporting: 'တိုင်ကြားနေ...',
+      success: 'တိုင်ကြားမှု အောင်မြင်စွာ ပေးပို့ပြီး!',
+      successMessage: 'တိုင်ကြားမှုအတွက် ကျေးဇူးတင်ပါသည်။ သင်၏တိုင်ကြားမှုကို အာဏာပိုင်များထံ ID နှင့်အတူ ပေးပို့ပြီးပါသည်:',
+      failed: 'တိုင်ကြားမှု မအောင်မြင်',
+      close: 'ပိတ်',
+      tryAgain: 'ထပ်စမ်း'
+    },
+    ta: {
+      detected: 'சாத்தியமான மோசடி கண்டறியப்பட்டது!',
+      question: 'அதிகாரிகளிடம் புகார் செய்யலாமா?',
+      button: 'அதிகாரிகளிடம் புகார் செய்',
+      reporting: 'புகார் செய்து கொண்டிருக்கிறது...',
+      success: 'புகார் வெற்றிகரமாக அனுப்பப்பட்டது!',
+      successMessage: 'புகார் செய்ததற்கு நன்றி. உங்கள் புகார் அதிகாரிகளுக்கு ID உடன் அனுப்பப்பட்டுள்ளது:',
+      failed: 'புகார் தோல்வியடைந்தது',
+      close: 'மூடு',
+      tryAgain: 'மீண்டும் முயற்சி'
     }
   };
   
@@ -319,6 +407,11 @@ function App() {
       setLoading(false);
       setFacebookExtractionInProgress(false);
       
+      // Clear report status when switching tabs
+      setReportSuccess(null);
+      setReportError(null);
+      setReportLoading(false);
+      
       if (tabInfo?.detection) {
         // Update auto-detected site info
         setAutoDetectedSite(tabInfo.detection);
@@ -387,6 +480,11 @@ function App() {
         setExtractedData(null);
         setWebsiteData(null);
         setFacebookData(null);
+        
+        // Clear report status when URL changes
+        setReportSuccess(null);
+        setReportError(null);
+        setReportLoading(false);
         
         // If this is Facebook and we're switching to it, check for existing data
         if (tabInfo.detection.type === 'social' && tabInfo.detection.platform === 'facebook') {
@@ -977,7 +1075,7 @@ function App() {
       const reportResponse = await submitScamReport(reportRequest, 'EXTENSION_SIDEBAR_REPORT');
       
       if (reportResponse.success) {
-        setReportSuccess(`Report submitted successfully! Report ID: ${reportResponse.data.report_id}`);
+        setReportSuccess(`${getReportText(selectedLanguage, 'successMessage')} ${reportResponse.data.report_id}`);
         console.log('✅ [SIDEBAR] Report submitted successfully:', reportResponse);
       } else {
         throw new Error(reportResponse.message || 'Report submission failed');
@@ -1153,6 +1251,12 @@ function App() {
                   setFacebookData(null);
                   setFacebookExtractionInProgress(false);
                   setError(null);
+                  setAnalysisResult(null);
+                  
+                  // Clear report status when clearing results
+                  setReportSuccess(null);
+                  setReportError(null);
+                  setReportLoading(false);
                 }}
                 className="w-full px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors font-medium text-sm"
               >
@@ -1222,7 +1326,7 @@ function App() {
                   <div className="bg-green-100 border border-green-300 rounded-lg p-3 mt-3">
                     <div className="flex items-center gap-2">
                       <span className="text-green-600">✅</span>
-                      <p className="text-sm text-green-700 font-medium">Report Submitted Successfully!</p>
+                      <p className="text-sm text-green-700 font-medium">{getReportText(selectedLanguage, 'success')}</p>
                     </div>
                     <p className="text-xs text-green-600 mt-1">{reportSuccess}</p>
                   </div>
@@ -1232,7 +1336,7 @@ function App() {
                   <div className="bg-red-100 border border-red-300 rounded-lg p-3 mt-3">
                     <div className="flex items-center gap-2">
                       <span className="text-red-600">❌</span>
-                      <p className="text-sm text-red-700 font-medium">Report Failed</p>
+                      <p className="text-sm text-red-700 font-medium">{getReportText(selectedLanguage, 'failed')}</p>
                     </div>
                     <p className="text-xs text-red-600 mt-1">{reportError}</p>
                     <button
@@ -1240,7 +1344,7 @@ function App() {
                       disabled={reportLoading}
                       className="mt-2 text-xs bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700 disabled:opacity-50 transition-colors"
                     >
-                      Try Again
+                      {getReportText(selectedLanguage, 'tryAgain')}
                     </button>
                   </div>
                 )}
