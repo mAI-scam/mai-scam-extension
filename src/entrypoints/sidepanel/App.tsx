@@ -152,12 +152,26 @@ const getReportText = (language: string, key: string): string => {
   return reportTexts[language]?.[key] || reportTexts.en[key] || key;
 };
 
-// Helper function to check if risk level requires reporting
+// Helper function to check if risk level requires reporting (supports all languages)
 const shouldShowReportFunction = (analysisResult: any): boolean => {
   if (!analysisResult) return false;
   
-  const riskLevel = analysisResult.risk_level?.toLowerCase();
-  return riskLevel === 'medium' || riskLevel === 'high';
+  const level = analysisResult.risk_level?.toLowerCase();
+  if (!level) return false;
+  
+  // High risk patterns (English, Chinese, Malay, Indonesian, Vietnamese, Thai, Filipino, etc.)
+  const highRiskPatterns = ['high', '高', '高风险', 'tinggi', 'risiko tinggi', 
+                           'cao', 'rủi ro cao', 'สูง', 'ความเสี่ยงสูง', 
+                           'mataas', 'dhuwur', 'luhur', 'ខ្ពស់', 'ສູງ', 'မြင့်', 'உயர்'];
+  
+  // Medium risk patterns (English, Chinese, Malay, Indonesian, Vietnamese, Thai, Filipino, etc.)
+  const mediumRiskPatterns = ['medium', 'medium risk', '中', '中等', '中等风险', 
+                             'sederhana', 'risiko sederhana', 'trung bình', 'rủi ro trung bình', 
+                             'ปานกลาง', 'ความเสี่ยงปานกลาง', 'katamtaman', 
+                             'madya', 'sedeng', 'មធ្យម', 'ປານກາງ', 'အလယ်', 'நடுத்தர'];
+  
+  return highRiskPatterns.some(pattern => level.includes(pattern)) ||
+         mediumRiskPatterns.some(pattern => level.includes(pattern));
 };
 
 function App() {
