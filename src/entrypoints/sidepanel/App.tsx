@@ -1067,7 +1067,15 @@ function App() {
           user_comment: `Report submitted from mAIscam extension at ${new Date().toISOString()}`
         };
       } else {
-        throw new Error(`No data available for ${scamType} report`);
+        if (scamType === 'socialmedia') {
+          throw new Error('No Facebook data available. Please scan a Facebook post first.');
+        } else if (scamType === 'email') {
+          throw new Error('No email data available. Please analyze an email first.');
+        } else if (scamType === 'website') {
+          throw new Error('No website data available. Please analyze a website first.');
+        } else {
+          throw new Error(`No data available for ${scamType} report`);
+        }
       }
 
       console.log('📤 [SIDEBAR] Submitting report:', reportRequest);
@@ -1301,7 +1309,7 @@ function App() {
                     🚨 <strong>{getReportText(selectedLanguage, 'detected')}</strong> {getReportText(selectedLanguage, 'question')}
                   </p>
                   <button
-                    onClick={() => handleSubmitReport(scanMode as 'email' | 'website' | 'socialmedia')}
+                    onClick={() => handleSubmitReport(scanMode === 'social' ? 'socialmedia' : scanMode as 'email' | 'website' | 'socialmedia')}
                     disabled={reportLoading}
                     className="w-full px-4 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
                   >
@@ -1340,7 +1348,7 @@ function App() {
                     </div>
                     <p className="text-xs text-red-600 mt-1">{reportError}</p>
                     <button
-                      onClick={() => handleSubmitReport(scanMode as 'email' | 'website' | 'socialmedia')}
+                      onClick={() => handleSubmitReport(scanMode === 'social' ? 'socialmedia' : scanMode as 'email' | 'website' | 'socialmedia')}
                       disabled={reportLoading}
                       className="mt-2 text-xs bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700 disabled:opacity-50 transition-colors"
                     >
