@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { analyzeEmailWithBackend, analyzeWebsiteWithBackend, analyzeSocialMediaWithBackend, SocialMediaAnalysisRequest } from '../../utils/backendApi';
+import { analyzeEmailWithBackend, analyzeWebsiteWithBackend, analyzeSocialMediaWithBackend, submitScamReport, SocialMediaAnalysisRequest, ScamReportRequest, EmailScamReportData, WebsiteScamReportData, SocialMediaScamReportData } from '../../utils/backendApi';
 import { detectSiteType, getSiteTypeDisplayName, type SiteDetectionResult } from '../../utils/urlDetection';
 import { addAnalysisToHistory } from '../../utils/storageManager';
 
@@ -90,6 +90,69 @@ const LANGUAGE_OPTIONS = [
 
 type ScanMode = 'email' | 'website' | 'social';
 
+// Multilingual text for report functionality
+const getReportText = (language: string, key: string): string => {
+  const reportTexts: { [lang: string]: { [key: string]: string } } = {
+    en: {
+      detected: 'Detected potential scam!',
+      question: 'Report this to authorities?',
+      button: 'Report to Authorities',
+      reporting: 'Reporting...',
+      success: 'Report Submitted Successfully!',
+      successMessage: 'Thank you for reporting. Your report has been sent to authorities with ID:',
+      failed: 'Report Failed',
+      close: 'Close',
+      tryAgain: 'Try Again'
+    },
+    zh: {
+      detected: '检测到潜在诈骗！',
+      question: '向当局举报？',
+      button: '向当局举报',
+      reporting: '正在举报...',
+      success: '举报提交成功！',
+      successMessage: '感谢您的举报。您的举报已发送给当局，ID：',
+      failed: '举报失败',
+      close: '关闭',
+      tryAgain: '重试'
+    },
+    ms: {
+      detected: 'Penipuan berpotensi dikesan!',
+      question: 'Laporkan kepada pihak berkuasa?',
+      button: 'Laporkan kepada Pihak Berkuasa',
+      reporting: 'Melaporkan...',
+      success: 'Laporan Berjaya Dihantar!',
+      successMessage: 'Terima kasih kerana melaporkan. Laporan anda telah dihantar kepada pihak berkuasa dengan ID:',
+      failed: 'Laporan Gagal',
+      close: 'Tutup',
+      tryAgain: 'Cuba Lagi'
+    },
+    vi: {
+      detected: 'Đã phát hiện lừa đảo tiềm ẩn!',
+      question: 'Báo cáo cho cơ quan chức năng?',
+      button: 'Báo Cáo Cho Cơ Quan Chức Năng',
+      reporting: 'Đang báo cáo...',
+      success: 'Báo Cáo Đã Gửi Thành Công!',
+      successMessage: 'Cảm ơn bạn đã báo cáo. Báo cáo của bạn đã được gửi cho cơ quan chức năng với ID:',
+      failed: 'Báo Cáo Thất Bại',
+      close: 'Đóng',
+      tryAgain: 'Thử Lại'
+    },
+    th: {
+      detected: 'ตรวจพบการฉ้อโกงที่อาจเกิดขึ้น!',
+      question: 'รายงานต่อเจ้าหน้าที่?',
+      button: 'รายงานต่อเจ้าหน้าที่',
+      reporting: 'กำลังรายงาน...',
+      success: 'รายงานส่งสำเร็จ!',
+      successMessage: 'ขอบคุณสำหรับการรายงาน รายงานของคุณได้ถูกส่งไปยังเจ้าหน้าที่แล้ว ID:',
+      failed: 'รายงานล้มเหลว',
+      close: 'ปิด',
+      tryAgain: 'ลองใหม่'
+    }
+  };
+  
+  return reportTexts[language]?.[key] || reportTexts.en[key] || key;
+};
+
 function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -107,6 +170,11 @@ function App() {
   
   // State to store the actual data being sent to backend for debugging
   const [backendRequestData, setBackendRequestData] = useState<any>(null);
+  
+  // Report functionality state
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportSuccess, setReportSuccess] = useState<string | null>(null);
+  const [reportError, setReportError] = useState<string | null>(null);
 
   // Initialize auto-detection and check for ongoing extractions when sidebar opens
   useEffect(() => {
@@ -518,6 +586,9 @@ function App() {
 
       console.log('📋 [SIDEBAR - ANALYZE FACEBOOK] Formatted analysis result:', analysisResult);
       
+      // Store analysis result in state for reporting functionality
+      setAnalysisResult(analysisResult);
+      
       // Show analysis result on website if tabId is provided
       if (tabId) {
         console.log('📱 [SIDEBAR - ANALYZE FACEBOOK] Showing analysis result on website...');
@@ -541,7 +612,8 @@ function App() {
       if (tabId) {
         await browser.tabs.sendMessage(tabId, { 
           type: 'SHOW_ANALYSIS_ERROR', 
-          error: errorMessage
+          error: errorMessage,
+          language: selectedLanguage
         });
       }
     } finally {
@@ -613,6 +685,9 @@ function App() {
               target_language_name: LANGUAGE_OPTIONS.find(lang => lang.code === selectedLanguage)?.name || selectedLanguage
             };
             
+            // Store analysis result in state for reporting functionality
+            setAnalysisResult(analysisData);
+            
             // Show analysis result modal on website
             await browser.tabs.sendMessage(tabs[0].id, { 
               type: 'SHOW_ANALYSIS_MODAL', 
@@ -630,7 +705,8 @@ function App() {
           // Show error modal on website
           await browser.tabs.sendMessage(tabs[0].id, { 
             type: 'SHOW_ANALYSIS_ERROR', 
-            error: 'No email data found. Make sure you have an email open in Gmail.' 
+            error: 'No email data found. Make sure you have an email open in Gmail.',
+            language: selectedLanguage
           });
         }
       } else {
@@ -660,7 +736,8 @@ function App() {
         
         await browser.tabs.sendMessage(tabs[0].id, { 
           type: 'SHOW_ANALYSIS_ERROR', 
-          error: errorMessage 
+          error: errorMessage,
+          language: selectedLanguage
         });
       } else {
         // Fallback to sidebar error if not on Gmail
@@ -749,6 +826,9 @@ function App() {
           target_language_name: LANGUAGE_OPTIONS.find(lang => lang.code === selectedLanguage)?.name || selectedLanguage
         };
         
+        // Store analysis result in state for reporting functionality
+        setAnalysisResult(analysisData);
+        
         // Show analysis result modal on website
         await browser.tabs.sendMessage(tabs[0].id, { 
           type: 'SHOW_ANALYSIS_MODAL', 
@@ -771,7 +851,8 @@ function App() {
         if (tabs[0]?.id) {
           await browser.tabs.sendMessage(tabs[0].id, { 
             type: 'SHOW_ANALYSIS_ERROR', 
-            error: err.message || 'Analysis failed' 
+            error: err.message || 'Analysis failed',
+            language: selectedLanguage
           });
         }
       } catch (modalError) {
@@ -789,6 +870,113 @@ function App() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Function to submit scam report to authorities
+  const handleSubmitReport = async (scamType: 'email' | 'website' | 'socialmedia') => {
+    if (!analysisResult) {
+      setReportError('No analysis result available to report');
+      return;
+    }
+
+    setReportLoading(true);
+    setReportError(null);
+    setReportSuccess(null);
+
+    try {
+      console.log('📢 [SIDEBAR] Starting scam report submission...', scamType);
+
+      let reportRequest: ScamReportRequest;
+
+      if (scamType === 'email' && extractedData) {
+        const emailData: EmailScamReportData = {
+          subject: extractedData.subject,
+          content: extractedData.content,
+          from_email: extractedData.from,
+          reply_to_email: extractedData.replyTo !== 'None' ? extractedData.replyTo : undefined,
+          risk_level: analysisResult.risk_level,
+          analysis: analysisResult.analysis,
+          recommended_action: analysisResult.recommended_action,
+          detected_language: analysisResult.detected_language,
+          content_hash: undefined // Could add hash generation if needed
+        };
+
+        reportRequest = {
+          scam_type: 'email',
+          email_data: emailData,
+          user_comment: `Report submitted from mAIscam extension at ${new Date().toISOString()}`
+        };
+      } else if (scamType === 'website' && websiteData) {
+        const websiteReportData: WebsiteScamReportData = {
+          url: websiteData.url,
+          title: websiteData.title,
+          content: websiteData.content,
+          risk_level: analysisResult.risk_level,
+          analysis: analysisResult.analysis,
+          recommended_action: analysisResult.recommended_action,
+          detected_language: analysisResult.detected_language,
+          content_hash: undefined, // Could add hash generation if needed
+          metadata: websiteData.metadata
+        };
+
+        reportRequest = {
+          scam_type: 'website',
+          website_data: websiteReportData,
+          user_comment: `Report submitted from mAIscam extension at ${new Date().toISOString()}`
+        };
+      } else if (scamType === 'socialmedia' && facebookData) {
+        const socialMediaReportData: SocialMediaScamReportData = {
+          platform: 'facebook',
+          content: facebookData.caption,
+          author_username: facebookData.username,
+          post_url: facebookData.postUrl,
+          author_followers_count: facebookData.author_followers_count,
+          engagement_metrics: facebookData.engagement_metrics,
+          risk_level: analysisResult.risk_level,
+          analysis: analysisResult.analysis,
+          recommended_action: analysisResult.recommended_action,
+          text_analysis: undefined, // Could add if available
+          image_analysis: undefined, // Could add if available
+          multimodal: !!facebookData.image,
+          content_hash: undefined // Could add hash generation if needed
+        };
+
+        reportRequest = {
+          scam_type: 'socialmedia',
+          socialmedia_data: socialMediaReportData,
+          user_comment: `Report submitted from mAIscam extension at ${new Date().toISOString()}`
+        };
+      } else {
+        throw new Error(`No data available for ${scamType} report`);
+      }
+
+      console.log('📤 [SIDEBAR] Submitting report:', reportRequest);
+
+      const reportResponse = await submitScamReport(reportRequest, 'EXTENSION_SIDEBAR_REPORT');
+      
+      if (reportResponse.success) {
+        setReportSuccess(`Report submitted successfully! Report ID: ${reportResponse.data.report_id}`);
+        console.log('✅ [SIDEBAR] Report submitted successfully:', reportResponse);
+      } else {
+        throw new Error(reportResponse.message || 'Report submission failed');
+      }
+
+    } catch (error: any) {
+      console.error('❌ [SIDEBAR] Report submission failed:', error);
+      
+      let errorMessage = 'Failed to submit report: ';
+      if (error.message?.includes('Backend server is not responding')) {
+        errorMessage += 'Cannot connect to backend server. Please ensure the server is running.';
+      } else if (error.message?.includes('timed out')) {
+        errorMessage += 'Request timed out. Please try again.';
+      } else {
+        errorMessage += (error.message || 'Unknown error');
+      }
+      
+      setReportError(errorMessage);
+    } finally {
+      setReportLoading(false);
     }
   };
 
@@ -1321,8 +1509,103 @@ function App() {
                 )}
               </div>
             </div>
-          ) : (
-            !loading && !error && !extractedData && !websiteData && !facebookData && (
+          ) : null}
+
+          {/* Report Section - Show when we have analysis results */}
+          {analysisResult && (extractedData || websiteData || facebookData) && (
+            <div className="space-y-4">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-red-600">🚨</span>
+                  <h3 className="font-semibold text-red-800">Scam Detection Results</h3>
+                </div>
+                
+                <div className="space-y-3">
+                  <div className="bg-white p-3 rounded-lg border border-red-200">
+                    <h4 className="font-semibold text-gray-700 mb-2 text-sm">⚠️ Risk Level</h4>
+                    <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
+                      analysisResult.risk_level === 'high' ? 'bg-red-100 text-red-800' :
+                      analysisResult.risk_level === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-green-100 text-green-800'
+                    }`}>
+                      {analysisResult.risk_level?.toUpperCase() || 'UNKNOWN'}
+                    </span>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-lg border border-red-200">
+                    <h4 className="font-semibold text-gray-700 mb-2 text-sm">🔍 Analysis</h4>
+                    <p className="text-sm text-gray-600 whitespace-pre-wrap">{analysisResult.analysis}</p>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-lg border border-red-200">
+                    <h4 className="font-semibold text-gray-700 mb-2 text-sm">💡 Recommended Action</h4>
+                    <p className="text-sm text-gray-600 whitespace-pre-wrap">{analysisResult.recommended_action}</p>
+                  </div>
+                </div>
+
+                {/* Report Button */}
+                <div className="mt-4 pt-3 border-t border-red-200">
+                  <div className="flex flex-col gap-3">
+                    <div className="text-center">
+                      <p className="text-sm text-red-700 mb-2">
+                        🚨 <strong>{getReportText(selectedLanguage, 'detected')}</strong> {getReportText(selectedLanguage, 'question')}
+                      </p>
+                      <button
+                        onClick={() => handleSubmitReport(scanMode as 'email' | 'website' | 'socialmedia')}
+                        disabled={reportLoading}
+                        className="w-full px-4 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+                      >
+                        {reportLoading ? (
+                          <>
+                            <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            {getReportText(selectedLanguage, 'reporting')}
+                          </>
+                        ) : (
+                          <>
+                            📢 {getReportText(selectedLanguage, 'button')}
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Report Status Messages */}
+                    {reportSuccess && (
+                      <div className="bg-green-100 border border-green-300 rounded-lg p-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-green-600">✅</span>
+                          <p className="text-sm text-green-700 font-medium">Report Submitted Successfully!</p>
+                        </div>
+                        <p className="text-xs text-green-600 mt-1">{reportSuccess}</p>
+                      </div>
+                    )}
+
+                    {reportError && (
+                      <div className="bg-red-100 border border-red-300 rounded-lg p-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-red-600">❌</span>
+                          <p className="text-sm text-red-700 font-medium">Report Failed</p>
+                        </div>
+                        <p className="text-xs text-red-600 mt-1">{reportError}</p>
+                        <button
+                          onClick={() => handleSubmitReport(scanMode as 'email' | 'website' | 'socialmedia')}
+                          disabled={reportLoading}
+                          className="mt-2 text-xs bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700 disabled:opacity-50 transition-colors"
+                        >
+                          Try Again
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Empty State */}
+          {!loading && !error && !extractedData && !websiteData && !facebookData && (
               <div className="text-center text-gray-500 py-8">
                 <div className="mb-4">
                   <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1343,7 +1626,6 @@ function App() {
                   }
                 </p>
               </div>
-            )
           )}
 
           {/* Footer Instructions */}

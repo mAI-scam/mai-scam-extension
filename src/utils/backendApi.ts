@@ -48,6 +48,75 @@ export interface BackendAnalysisResponse {
   status_code: number;
 }
 
+// Report API Interfaces
+export interface EmailScamReportData {
+  subject: string;
+  content: string;
+  from_email: string;
+  reply_to_email?: string;
+  risk_level: string;
+  analysis: string;
+  recommended_action: string;
+  detected_language?: string;
+  content_hash?: string;
+}
+
+export interface WebsiteScamReportData {
+  url: string;
+  title?: string;
+  content?: string;
+  risk_level: string;
+  analysis: string;
+  recommended_action: string;
+  detected_language?: string;
+  content_hash?: string;
+  metadata?: any;
+}
+
+export interface SocialMediaScamReportData {
+  platform: string;
+  content: string;
+  author_username: string;
+  post_url?: string;
+  author_followers_count?: number;
+  engagement_metrics?: {
+    likes?: number;
+    comments?: number;
+    shares?: number;
+    reactions?: number;
+    views?: number;
+  };
+  risk_level: string;
+  analysis: string;
+  recommended_action: string;
+  text_analysis?: string;
+  image_analysis?: string;
+  multimodal?: boolean;
+  content_hash?: string;
+}
+
+export interface ScamReportRequest {
+  scam_type: 'email' | 'website' | 'socialmedia';
+  email_data?: EmailScamReportData;
+  website_data?: WebsiteScamReportData;
+  socialmedia_data?: SocialMediaScamReportData;
+  user_comment?: string;
+  contact_email?: string;
+}
+
+export interface ScamReportResponse {
+  success: boolean;
+  message: string;
+  data: {
+    report_id: string;
+    scam_type: string;
+    sent_to: string;
+    timestamp: string;
+  };
+  timestamp: string;
+  status_code: number;
+}
+
 // Backend API configuration
 const BACKEND_CONFIG = {
   // Use deployed API as primary, localhost as fallback
@@ -60,6 +129,7 @@ const BACKEND_CONFIG = {
     emailAnalyze: '/email/v2/analyze',
     websiteAnalyze: '/website/v2/analyze',
     socialMediaAnalyze: '/socialmedia/v2/analyze',
+    reportSubmit: '/report/v2/submit',
     health: '/email/',
     createApiKey: '/auth/api-key',
     createToken: '/auth/token'
@@ -732,6 +802,96 @@ export async function analyzeSocialMediaWithBackend(
     if (error.name === 'AbortError') {
       console.error(`⏰ [${debugContext}] Request aborted due to timeout`);
       throw new BackendTimeoutError(`Social media analysis request timed out after ${BACKEND_CONFIG.timeout / 1000} seconds`);
+    }
+    
+    if (error instanceof BackendApiError) {
+      throw error;
+    }
+    
+    console.error(`💥 [${debugContext}] Unexpected error:`, error);
+    throw new BackendConnectionError(`Failed to connect to backend: ${error.message}`);
+  }
+}
+
+// Report scam to authorities via backend API
+export async function submitScamReport(
+  reportRequest: ScamReportRequest,
+  debugContext: string = 'SCAM_REPORT'
+): Promise<ScamReportResponse> {
+  console.log(`📢 [${debugContext}] Starting scam report submission...`);
+  console.log(`📢 [${debugContext}] Report request:`, JSON.stringify(reportRequest, null, 2));
+  
+  const apiKey = await getOrCreateApiKey();
+  
+  if (!apiKey) {
+    throw new BackendApiError('Failed to obtain API key for scam reporting', 401, 'AUTHENTICATION_ERROR');
+  }
+
+  const healthResult = await checkBackendHealth();
+  if (!healthResult.isHealthy || !healthResult.workingUrl) {
+    throw new BackendConnectionError(`Backend server is not responding. ${healthResult.error}`);
+  }
+
+  const requestUrl = `${healthResult.workingUrl}${BACKEND_CONFIG.endpoints.reportSubmit}`;
+  console.log(`📢 [${debugContext}] Making request to:`, requestUrl);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    console.log(`⏰ [${debugContext}] Request timeout after ${BACKEND_CONFIG.timeout}ms`);
+    controller.abort();
+  }, BACKEND_CONFIG.timeout);
+
+  try {
+    const response = await fetch(requestUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': apiKey
+      },
+      body: JSON.stringify(reportRequest),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+    console.log(`📢 [${debugContext}] Response status:`, response.status, response.statusText);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ [${debugContext}] Backend error response:`, errorText);
+      
+      let errorData;
+      try {
+        errorData = JSON.parse(errorText);
+      } catch {
+        errorData = { message: errorText };
+      }
+      
+      throw new BackendApiError(
+        errorData.message || `HTTP ${response.status}`,
+        response.status,
+        errorData.error_code || 'BACKEND_ERROR'
+      );
+    }
+
+    const responseData = await response.json();
+    console.log(`✅ [${debugContext}] Backend response received:`, JSON.stringify(responseData, null, 2));
+
+    if (!responseData.success) {
+      throw new BackendApiError(
+        responseData.message || 'Scam report submission failed',
+        responseData.status_code || 500,
+        'REPORT_FAILED'
+      );
+    }
+
+    return responseData as ScamReportResponse;
+
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    
+    if (error.name === 'AbortError') {
+      console.error(`⏰ [${debugContext}] Request aborted due to timeout`);
+      throw new BackendTimeoutError(`Scam report request timed out after ${BACKEND_CONFIG.timeout / 1000} seconds`);
     }
     
     if (error instanceof BackendApiError) {

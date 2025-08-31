@@ -1234,6 +1234,9 @@ export default defineContentScript({
           replyTo
         };
 
+        // Store extracted email data for reporting
+        lastExtractedData.email = result;
+
         console.log('Reply-to extraction summary:', {
           found: replyTo !== 'None',
           value: replyTo,
@@ -1411,6 +1414,9 @@ export default defineContentScript({
         console.log('Social Metadata:', metadata.social);
         console.log('Link Analysis:', metadata.links);
         console.log('============================================');
+        
+        // Store extracted website data for reporting
+        lastExtractedData.website = result;
         
         return result;
       } catch (error) {
@@ -1768,6 +1774,9 @@ export default defineContentScript({
           const extractedData = extractPostData(post);
           facebookExtractionState.data = extractedData;
           facebookExtractionState.inProgress = false;
+          
+          // Store extracted social media data for reporting
+          lastExtractedData.socialmedia = extractedData;
           
           console.log('Facebook extraction completed:', extractedData);
           
@@ -3266,12 +3275,12 @@ export default defineContentScript({
 
         // Action buttons
         const buttonContainer = document.createElement('div');
-        buttonContainer.style.cssText = 'display: flex; gap: 12px; padding-top: 16px;';
+        buttonContainer.style.cssText = 'padding-top: 16px;';
         
-        const reportButton = document.createElement('button');
-        reportButton.style.cssText = `
-          flex: 1;
-          background-color: #ef4444;
+        const dismissButton = document.createElement('button');
+        dismissButton.style.cssText = `
+          width: 100%;
+          background-color: #16a34a;
           color: white;
           font-weight: 500;
           padding: 8px 16px;
@@ -3280,28 +3289,11 @@ export default defineContentScript({
           cursor: pointer;
           transition: background-color 0.2s;
         `;
-        reportButton.textContent = 'REPORT FRAUD';
-        reportButton.onmouseover = () => reportButton.style.backgroundColor = '#dc2626';
-        reportButton.onmouseout = () => reportButton.style.backgroundColor = '#ef4444';
-        
-        const dismissButton = document.createElement('button');
-        dismissButton.style.cssText = `
-          flex: 1;
-          background-color: #e5e7eb;
-          color: #374151;
-          font-weight: 500;
-          padding: 8px 16px;
-          border-radius: 8px;
-          border: none;
-          cursor: pointer;
-          transition: background-color 0.2s;
-        `;
-        dismissButton.textContent = 'DISMISS';
+        dismissButton.textContent = getDismissButtonText(result.target_language || 'en');
         dismissButton.onclick = () => modalContainer.remove();
-        dismissButton.onmouseover = () => dismissButton.style.backgroundColor = '#d1d5db';
-        dismissButton.onmouseout = () => dismissButton.style.backgroundColor = '#e5e7eb';
+        dismissButton.onmouseover = () => dismissButton.style.backgroundColor = '#15803d';
+        dismissButton.onmouseout = () => dismissButton.style.backgroundColor = '#16a34a';
         
-        buttonContainer.appendChild(reportButton);
         buttonContainer.appendChild(dismissButton);
 
         // Footer
@@ -3344,7 +3336,7 @@ export default defineContentScript({
     }
 
     // Function to show analysis error modal
-    function showAnalysisError(errorMessage: string) {
+    function showAnalysisError(errorMessage: string, language: string = 'en') {
       // Remove existing modal if any
       const existingModal = document.getElementById('maiscam-analysis-modal');
       if (existingModal) {
@@ -3408,9 +3400,10 @@ export default defineContentScript({
       `;
       icon.textContent = '⚠️';
 
+      const errorTexts = getErrorModalTexts(language);
       const title = document.createElement('h3');
       title.style.cssText = 'font-size: 18px; font-weight: 600; color: #111827; margin: 0;';
-      title.textContent = 'Analysis Error';
+      title.textContent = errorTexts.title;
 
       headerLeft.appendChild(icon);
       headerLeft.appendChild(title);
@@ -3466,7 +3459,7 @@ export default defineContentScript({
         cursor: pointer;
         transition: background-color 0.2s;
       `;
-      closeOnlyButton.textContent = 'Close';
+      closeOnlyButton.textContent = getDismissButtonText(language, 'close');
       closeOnlyButton.onmouseover = () => closeOnlyButton.style.backgroundColor = '#dc2626';
       closeOnlyButton.onmouseout = () => closeOnlyButton.style.backgroundColor = '#ef4444';
       closeOnlyButton.onclick = () => modalContainer.remove();
@@ -3584,7 +3577,7 @@ export default defineContentScript({
         sendResponse({ success: true });
       } else if (message.type === 'SHOW_ANALYSIS_ERROR') {
         console.log('Showing analysis error modal on website:', message.error);
-        showAnalysisError(message.error);
+        showAnalysisError(message.error, message.language || 'en');
         sendResponse({ success: true });
       } else if (message.type === 'CONVERT_IMAGE_TO_BASE64') {
         console.log('Converting image to base64:', message.imageUrl);
@@ -3725,6 +3718,79 @@ export default defineContentScript({
       return overlays;
     }
 
+    // Multilingual text for dismiss/close buttons in analysis modals
+    function getDismissButtonText(language: string = 'en', type: 'dismiss' | 'close' = 'dismiss') {
+      const texts = {
+        en: { dismiss: 'DISMISS', close: 'Close' },
+        zh: { dismiss: '关闭', close: '关闭' },
+        ms: { dismiss: 'TUTUP', close: 'Tutup' },
+        vi: { dismiss: 'ĐÓNG', close: 'Đóng' },
+        th: { dismiss: 'ปิด', close: 'ปิด' },
+        id: { dismiss: 'TUTUP', close: 'Tutup' },
+        fil: { dismiss: 'ISARA', close: 'Isara' },
+        ta: { dismiss: 'மூடு', close: 'மூடு' }
+      };
+      
+      const langTexts = texts[language as keyof typeof texts] || texts.en;
+      return langTexts[type];
+    }
+
+    // Multilingual text for error modal
+    function getErrorModalTexts(language: string = 'en') {
+      const texts = {
+        en: { title: 'Analysis Error' },
+        zh: { title: '分析错误' },
+        ms: { title: 'Ralat Analisis' },
+        vi: { title: 'Lỗi Phân tích' },
+        th: { title: 'ข้อผิดพลาดในการวิเคราะห์' },
+        id: { title: 'Kesalahan Analisis' },
+        fil: { title: 'Error sa Pagsusuri' },
+        ta: { title: 'பகுப்பாய்வு பிழை' }
+      };
+      
+      return texts[language as keyof typeof texts] || texts.en;
+    }
+
+    // Multilingual text for report notification in analysis modal
+    function getReportNotificationTexts(language: string = 'en') {
+      const texts = {
+        en: {
+          title: 'Report to Authorities',
+          description: '📍 <strong>Open the extension sidepanel</strong> to report this scam to authorities with one click.<br>Look for the red "Report to Authorities" section.'
+        },
+        zh: {
+          title: '向当局举报',
+          description: '📍 <strong>打开扩展侧边栏</strong>，一键向当局举报此诈骗。<br>寻找红色的"向当局举报"部分。'
+        },
+        ms: {
+          title: 'Lapor kepada Pihak Berkuasa',
+          description: '📍 <strong>Buka panel sisi sambungan</strong> untuk melaporkan penipuan ini kepada pihak berkuasa dengan satu klik.<br>Cari bahagian "Lapor kepada Pihak Berkuasa" yang berwarna merah.'
+        },
+        vi: {
+          title: 'Báo cáo cho Chính quyền',
+          description: '📍 <strong>Mở bảng điều khiển bên của tiện ích mở rộng</strong> để báo cáo lừa đảo này cho chính quyền chỉ bằng một cú nhấp chuột.<br>Tìm phần "Báo cáo cho Chính quyền" màu đỏ.'
+        },
+        th: {
+          title: 'รายงานต่อเจ้าหน้าที่',
+          description: '📍 <strong>เปิดแผงด้านข้างของส่วนขยาย</strong> เพื่อรายงานการหลอกลวงนี้ต่อเจ้าหน้าที่ด้วยการคลิกเพียงครั้งเดียว<br>มองหาส่วน "รายงานต่อเจ้าหน้าที่" สีแดง'
+        },
+        id: {
+          title: 'Laporkan ke Pihak Berwenang',
+          description: '📍 <strong>Buka panel samping ekstensi</strong> untuk melaporkan penipuan ini ke pihak berwenang dengan satu klik.<br>Cari bagian "Laporkan ke Pihak Berwenang" berwarna merah.'
+        },
+        fil: {
+          title: 'Iulat sa mga Awtoridad',
+          description: '📍 <strong>Buksan ang sidepanel ng extension</strong> upang iulat ang scam na ito sa mga awtoridad sa isang click.<br>Hanapin ang pulang seksyon na "Iulat sa mga Awtoridad".'
+        },
+        ta: {
+          title: 'அதிகாரிகளுக்கு புகார்',
+          description: '📍 <strong>நீட்டிப்பின் பக்க பேனலைத் திறக்கவும்</strong> ஒரே கிளிக்கில் இந்த மோசடியை அதிகாரிகளுக்கு புகார் செய்ய.<br>சிவப்பு "அதிகாரிகளுக்கு புகார்" பகுதியைத் தேடுங்கள்.'
+        }
+      };
+      
+      return texts[language as keyof typeof texts] || texts.en;
+    }
+
     // Multilingual text for warning modal - website version
     function getWebsiteWarningModalTexts(language: string = 'en') {
       const texts = {
@@ -3740,7 +3806,21 @@ export default defineContentScript({
           reportMessage: 'Thank you for reporting this website. We will investigate it.',
           footer: 'Protected by mAIscam Browser Extension',
           recommendedAction: 'Recommended Action:',
-          passcode: 'I UNDERSTAND'
+          passcode: 'I UNDERSTAND',
+          // Report confirmation popup texts
+          reportConfirmTitle: 'Report Scam',
+          reportConfirmMessage: 'Are you sure you want to report this as a scam to authorities?',
+          reportConfirmButton: 'Yes, Report Scam',
+          reportCancelButton: 'Cancel',
+          reportLoadingTitle: 'Reporting Scam...',
+          reportLoadingMessage: 'Please wait while we send your report to authorities.',
+          reportSuccessTitle: 'Report Sent Successfully',
+          reportSuccessMessage: 'Thank you for reporting. Your report has been sent to authorities with ID: {reportId}',
+          reportSuccessButton: 'Close',
+          reportErrorTitle: 'Report Failed',
+          reportErrorMessage: 'Failed to send report: {error}',
+          reportErrorButton: 'Try Again',
+          reportedLabel: '✅ Reported'
         },
         zh: {
           title: '安全警告',
@@ -3754,7 +3834,21 @@ export default defineContentScript({
           reportMessage: '感谢您举报此网站。我们将对其进行调查。',
           footer: 'mAIscam 浏览器扩展保护',
           recommendedAction: '建议操作：',
-          passcode: '我明白'
+          passcode: '我明白',
+          // Report confirmation popup texts
+          reportConfirmTitle: '举报诈骗',
+          reportConfirmMessage: '您确定要向当局举报此项目为诈骗吗？',
+          reportConfirmButton: '是的，举报诈骗',
+          reportCancelButton: '取消',
+          reportLoadingTitle: '正在举报诈骗...',
+          reportLoadingMessage: '请等待，我们正在向当局发送您的举报。',
+          reportSuccessTitle: '举报发送成功',
+          reportSuccessMessage: '感谢您的举报。您的举报已发送给当局，ID：{reportId}',
+          reportSuccessButton: '关闭',
+          reportErrorTitle: '举报失败',
+          reportErrorMessage: '发送举报失败：{error}',
+          reportErrorButton: '重试',
+          reportedLabel: '✅ 已举报'
         },
         ms: {
           title: 'AMARAN KESELAMATAN',
@@ -3768,7 +3862,21 @@ export default defineContentScript({
           reportMessage: 'Terima kasih kerana melaporkan laman web ini. Kami akan menyiasatnya.',
           footer: 'Dilindungi oleh Sambungan Pelayar mAIscam',
           recommendedAction: 'Tindakan Disyorkan:',
-          passcode: 'SAYA FAHAM'
+          passcode: 'SAYA FAHAM',
+          // Report confirmation popup texts
+          reportConfirmTitle: 'Laporkan Penipuan',
+          reportConfirmMessage: 'Adakah anda pasti mahu melaporkan ini sebagai penipuan kepada pihak berkuasa?',
+          reportConfirmButton: 'Ya, Laporkan Penipuan',
+          reportCancelButton: 'Batal',
+          reportLoadingTitle: 'Melaporkan Penipuan...',
+          reportLoadingMessage: 'Sila tunggu semasa kami menghantar laporan anda kepada pihak berkuasa.',
+          reportSuccessTitle: 'Laporan Dihantar Berjaya',
+          reportSuccessMessage: 'Terima kasih kerana melaporkan. Laporan anda telah dihantar kepada pihak berkuasa dengan ID: {reportId}',
+          reportSuccessButton: 'Tutup',
+          reportErrorTitle: 'Laporan Gagal',
+          reportErrorMessage: 'Gagal menghantar laporan: {error}',
+          reportErrorButton: 'Cuba Lagi',
+          reportedLabel: '✅ Dilaporkan'
         },
         vi: {
           title: 'CẢNH BÁO BẢO MẬT',
@@ -3782,7 +3890,21 @@ export default defineContentScript({
           reportMessage: 'Cảm ơn bạn đã báo cáo trang web này. Chúng tôi sẽ điều tra.',
           footer: 'Được bảo vệ bởi Tiện ích mở rộng mAIscam',
           recommendedAction: 'Hành Động Được Khuyến Nghị:',
-          passcode: 'TÔI HIỂU'
+          passcode: 'TÔI HIỂU',
+          // Report confirmation popup texts
+          reportConfirmTitle: 'Báo Cáo Lừa Đảo',
+          reportConfirmMessage: 'Bạn có chắc chắn muốn báo cáo điều này như một vụ lừa đảo cho các cơ quan chức năng?',
+          reportConfirmButton: 'Có, Báo Cáo Lừa Đảo',
+          reportCancelButton: 'Hủy',
+          reportLoadingTitle: 'Đang Báo Cáo Lừa Đảo...',
+          reportLoadingMessage: 'Vui lòng đợi trong khi chúng tôi gửi báo cáo của bạn cho các cơ quan chức năng.',
+          reportSuccessTitle: 'Báo Cáo Đã Gửi Thành Công',
+          reportSuccessMessage: 'Cảm ơn bạn đã báo cáo. Báo cáo của bạn đã được gửi cho các cơ quan chức năng với ID: {reportId}',
+          reportSuccessButton: 'Đóng',
+          reportErrorTitle: 'Báo Cáo Thất Bại',
+          reportErrorMessage: 'Gửi báo cáo thất bại: {error}',
+          reportErrorButton: 'Thử Lại',
+          reportedLabel: '✅ Đã Báo Cáo'
         },
         th: {
           title: 'คำเตือนด้านความปลอดภัย',
@@ -3796,7 +3918,21 @@ export default defineContentScript({
           reportMessage: 'ขอบคุณสำหรับการรายงานเว็บไซต์นี้ เราจะตรวจสอบ',
           footer: 'ได้รับการปกป้องโดย mAIscam Browser Extension',
           recommendedAction: 'การดำเนินการที่แนะนำ:',
-          passcode: 'ฉันเข้าใจ'
+          passcode: 'ฉันเข้าใจ',
+          // Report confirmation popup texts
+          reportConfirmTitle: 'รายงานการหลอกลวง',
+          reportConfirmMessage: 'คุณแน่ใจหรือไม่ว่าต้องการรายงานสิ่งนี้เป็นการหลอกลวงต่อหน่วยงานที่เกี่ยวข้อง?',
+          reportConfirmButton: 'ใช่ รายงานการหลอกลวง',
+          reportCancelButton: 'ยกเลิก',
+          reportLoadingTitle: 'กำลังรายงานการหลอกลวง...',
+          reportLoadingMessage: 'กรุณารอสักครู่ในขณะที่เราส่งรายงานของคุณไปยังหน่วยงานที่เกี่ยวข้อง',
+          reportSuccessTitle: 'ส่งรายงานสำเร็จ',
+          reportSuccessMessage: 'ขอบคุณสำหรับการรายงาน รายงานของคุณได้ถูกส่งไปยังหน่วยงานที่เกี่ยวข้องแล้ว ID: {reportId}',
+          reportSuccessButton: 'ปิด',
+          reportErrorTitle: 'รายงานล้มเหลว',
+          reportErrorMessage: 'ไม่สามารถส่งรายงานได้: {error}',
+          reportErrorButton: 'ลองใหม่',
+          reportedLabel: '✅ รายงานแล้ว'
         }
       };
       
@@ -3818,7 +3954,21 @@ export default defineContentScript({
           reportMessage: 'Thank you for reporting this email. We will investigate it.',
           footer: 'Protected by mAIscam Browser Extension',
           recommendedAction: 'Recommended Action:',
-          passcode: 'I UNDERSTAND'
+          passcode: 'I UNDERSTAND',
+          // Report confirmation popup texts
+          reportConfirmTitle: 'Report Scam',
+          reportConfirmMessage: 'Are you sure you want to report this as a scam to authorities?',
+          reportConfirmButton: 'Yes, Report Scam',
+          reportCancelButton: 'Cancel',
+          reportLoadingTitle: 'Reporting Scam...',
+          reportLoadingMessage: 'Please wait while we send your report to authorities.',
+          reportSuccessTitle: 'Report Sent Successfully',
+          reportSuccessMessage: 'Thank you for reporting. Your report has been sent to authorities with ID: {reportId}',
+          reportSuccessButton: 'Close',
+          reportErrorTitle: 'Report Failed',
+          reportErrorMessage: 'Failed to send report: {error}',
+          reportErrorButton: 'Try Again',
+          reportedLabel: '✅ Reported'
         },
         zh: {
           title: '邮件安全警告',
@@ -3832,7 +3982,21 @@ export default defineContentScript({
           reportMessage: '感谢您举报此邮件。我们将对其进行调查。',
           footer: 'mAIscam 浏览器扩展保护',
           recommendedAction: '建议操作：',
-          passcode: '我明白'
+          passcode: '我明白',
+          // Report confirmation popup texts
+          reportConfirmTitle: '举报诈骗',
+          reportConfirmMessage: '您确定要向当局举报此项目为诈骗吗？',
+          reportConfirmButton: '是的，举报诈骗',
+          reportCancelButton: '取消',
+          reportLoadingTitle: '正在举报诈骗...',
+          reportLoadingMessage: '请等待，我们正在向当局发送您的举报。',
+          reportSuccessTitle: '举报发送成功',
+          reportSuccessMessage: '感谢您的举报。您的举报已发送给当局，ID：{reportId}',
+          reportSuccessButton: '关闭',
+          reportErrorTitle: '举报失败',
+          reportErrorMessage: '发送举报失败：{error}',
+          reportErrorButton: '重试',
+          reportedLabel: '✅ 已举报'
         },
         ms: {
           title: 'AMARAN KESELAMATAN E-MEL',
@@ -3846,7 +4010,21 @@ export default defineContentScript({
           reportMessage: 'Terima kasih kerana melaporkan e-mel ini. Kami akan menyiasatnya.',
           footer: 'Dilindungi oleh Sambungan Pelayar mAIscam',
           recommendedAction: 'Tindakan Disyorkan:',
-          passcode: 'SAYA FAHAM'
+          passcode: 'SAYA FAHAM',
+          // Report confirmation popup texts
+          reportConfirmTitle: 'Laporkan Penipuan',
+          reportConfirmMessage: 'Adakah anda pasti untuk melaporkan ini sebagai penipuan kepada pihak berkuasa?',
+          reportConfirmButton: 'Ya, Laporkan Penipuan',
+          reportCancelButton: 'Batal',
+          reportLoadingTitle: 'Melaporkan Penipuan...',
+          reportLoadingMessage: 'Sila tunggu sementara kami menghantar laporan anda kepada pihak berkuasa.',
+          reportSuccessTitle: 'Laporan Berjaya Dihantar',
+          reportSuccessMessage: 'Terima kasih kerana melaporkan. Laporan anda telah dihantar kepada pihak berkuasa dengan ID: {reportId}',
+          reportSuccessButton: 'Tutup',
+          reportErrorTitle: 'Laporan Gagal',
+          reportErrorMessage: 'Gagal menghantar laporan: {error}',
+          reportErrorButton: 'Cuba Lagi',
+          reportedLabel: '✅ Dilaporkan'
         },
         vi: {
           title: 'CẢNH BÁO BẢO MẬT EMAIL',
@@ -3860,7 +4038,21 @@ export default defineContentScript({
           reportMessage: 'Cảm ơn bạn đã báo cáo email này. Chúng tôi sẽ điều tra.',
           footer: 'Được bảo vệ bởi Tiện ích mở rộng mAIscam',
           recommendedAction: 'Hành Động Được Khuyến Nghị:',
-          passcode: 'TÔI HIỂU'
+          passcode: 'TÔI HIỂU',
+          // Report confirmation popup texts
+          reportConfirmTitle: 'Báo Cáo Lừa Đảo',
+          reportConfirmMessage: 'Bạn có chắc chắn muốn báo cáo điều này như một vụ lừa đảo cho các cơ quan chức năng?',
+          reportConfirmButton: 'Có, Báo Cáo Lừa Đảo',
+          reportCancelButton: 'Hủy',
+          reportLoadingTitle: 'Đang Báo Cáo Lừa Đảo...',
+          reportLoadingMessage: 'Vui lòng đợi trong khi chúng tôi gửi báo cáo của bạn cho các cơ quan chức năng.',
+          reportSuccessTitle: 'Báo Cáo Đã Gửi Thành Công',
+          reportSuccessMessage: 'Cảm ơn bạn đã báo cáo. Báo cáo của bạn đã được gửi cho các cơ quan chức năng với ID: {reportId}',
+          reportSuccessButton: 'Đóng',
+          reportErrorTitle: 'Báo Cáo Thất Bại',
+          reportErrorMessage: 'Gửi báo cáo thất bại: {error}',
+          reportErrorButton: 'Thử Lại',
+          reportedLabel: '✅ Đã Báo Cáo'
         },
         th: {
           title: 'คำเตือนความปลอดภัยอีเมล',
@@ -3874,7 +4066,21 @@ export default defineContentScript({
           reportMessage: 'ขอบคุณสำหรับการรายงานอีเมลนี้ เราจะตรวจสอบ',
           footer: 'ได้รับการปกป้องโดย mAIscam Browser Extension',
           recommendedAction: 'การดำเนินการที่แนะนำ:',
-          passcode: 'ฉันเข้าใจ'
+          passcode: 'ฉันเข้าใจ',
+          // Report confirmation popup texts
+          reportConfirmTitle: 'รายงานการฉ้อโกง',
+          reportConfirmMessage: 'คุณแน่ใจหรือไม่ที่จะรายงานสิ่งนี้เป็นการฉ้อโกงต่อเจ้าหน้าที่?',
+          reportConfirmButton: 'ใช่ รายงานการฉ้อโกง',
+          reportCancelButton: 'ยกเลิก',
+          reportLoadingTitle: 'กำลังรายงานการฉ้อโกง...',
+          reportLoadingMessage: 'กรุณารอสักครู่ในขณะที่เราส่งรายงานของคุณไปยังเจ้าหน้าที่',
+          reportSuccessTitle: 'รายงานส่งสำเร็จ',
+          reportSuccessMessage: 'ขอบคุณสำหรับการรายงาน รายงานของคุณได้ถูกส่งไปยังหน่วยงานที่เกี่ยวข้องแล้ว ID: {reportId}',
+          reportSuccessButton: 'ปิด',
+          reportErrorTitle: 'รายงานล้มเหลว',
+          reportErrorMessage: 'ไม่สามารถส่งรายงานได้: {error}',
+          reportErrorButton: 'ลองใหม่',
+          reportedLabel: '✅ รายงานแล้ว'
         }
       };
       
@@ -3896,7 +4102,21 @@ export default defineContentScript({
           reportMessage: 'Thank you for reporting this post. We will investigate it.',
           footer: 'Protected by mAIscam Browser Extension',
           recommendedAction: 'Recommended Action:',
-          passcode: 'I UNDERSTAND'
+          passcode: 'I UNDERSTAND',
+          // Report confirmation popup texts
+          reportConfirmTitle: 'Report Scam',
+          reportConfirmMessage: 'Are you sure you want to report this as a scam to authorities?',
+          reportConfirmButton: 'Yes, Report Scam',
+          reportCancelButton: 'Cancel',
+          reportLoadingTitle: 'Reporting Scam...',
+          reportLoadingMessage: 'Please wait while we send your report to authorities.',
+          reportSuccessTitle: 'Report Sent Successfully',
+          reportSuccessMessage: 'Thank you for reporting. Your report has been sent to authorities with ID: {reportId}',
+          reportSuccessButton: 'Close',
+          reportErrorTitle: 'Report Failed',
+          reportErrorMessage: 'Failed to send report: {error}',
+          reportErrorButton: 'Try Again',
+          reportedLabel: '✅ Reported'
         },
         zh: {
           title: '社交媒体安全警告',
@@ -3910,7 +4130,21 @@ export default defineContentScript({
           reportMessage: '感谢您举报此帖子。我们将对其进行调查。',
           footer: 'mAIscam 浏览器扩展保护',
           recommendedAction: '建议操作：',
-          passcode: '我明白'
+          passcode: '我明白',
+          // Report confirmation popup texts
+          reportConfirmTitle: '举报诈骗',
+          reportConfirmMessage: '您确定要向当局举报此项目为诈骗吗？',
+          reportConfirmButton: '是的，举报诈骗',
+          reportCancelButton: '取消',
+          reportLoadingTitle: '正在举报诈骗...',
+          reportLoadingMessage: '请等待，我们正在向当局发送您的举报。',
+          reportSuccessTitle: '举报发送成功',
+          reportSuccessMessage: '感谢您的举报。您的举报已发送给当局，ID：{reportId}',
+          reportSuccessButton: '关闭',
+          reportErrorTitle: '举报失败',
+          reportErrorMessage: '发送举报失败：{error}',
+          reportErrorButton: '重试',
+          reportedLabel: '✅ 已举报'
         },
         ms: {
           title: 'AMARAN KESELAMATAN MEDIA SOSIAL',
@@ -3924,7 +4158,21 @@ export default defineContentScript({
           reportMessage: 'Terima kasih kerana melaporkan siaran ini. Kami akan menyiasatnya.',
           footer: 'Dilindungi oleh Sambungan Pelayar mAIscam',
           recommendedAction: 'Tindakan Disyorkan:',
-          passcode: 'SAYA FAHAM'
+          passcode: 'SAYA FAHAM',
+          // Report confirmation popup texts
+          reportConfirmTitle: 'Laporkan Penipuan',
+          reportConfirmMessage: 'Adakah anda pasti untuk melaporkan ini sebagai penipuan kepada pihak berkuasa?',
+          reportConfirmButton: 'Ya, Laporkan Penipuan',
+          reportCancelButton: 'Batal',
+          reportLoadingTitle: 'Melaporkan Penipuan...',
+          reportLoadingMessage: 'Sila tunggu sementara kami menghantar laporan anda kepada pihak berkuasa.',
+          reportSuccessTitle: 'Laporan Berjaya Dihantar',
+          reportSuccessMessage: 'Terima kasih kerana melaporkan. Laporan anda telah dihantar kepada pihak berkuasa dengan ID: {reportId}',
+          reportSuccessButton: 'Tutup',
+          reportErrorTitle: 'Laporan Gagal',
+          reportErrorMessage: 'Gagal menghantar laporan: {error}',
+          reportErrorButton: 'Cuba Lagi',
+          reportedLabel: '✅ Dilaporkan'
         },
         vi: {
           title: 'CẢNH BÁO BẢO MẬT MẠNG XÃ HỘI',
@@ -3938,7 +4186,21 @@ export default defineContentScript({
           reportMessage: 'Cảm ơn bạn đã báo cáo bài đăng này. Chúng tôi sẽ điều tra.',
           footer: 'Được bảo vệ bởi Tiện ích mở rộng mAIscam',
           recommendedAction: 'Hành Động Được Khuyến Nghị:',
-          passcode: 'TÔI HIỂU'
+          passcode: 'TÔI HIỂU',
+          // Report confirmation popup texts
+          reportConfirmTitle: 'Báo Cáo Lừa Đảo',
+          reportConfirmMessage: 'Bạn có chắc chắn muốn báo cáo điều này như một vụ lừa đảo cho các cơ quan chức năng?',
+          reportConfirmButton: 'Có, Báo Cáo Lừa Đảo',
+          reportCancelButton: 'Hủy',
+          reportLoadingTitle: 'Đang Báo Cáo Lừa Đảo...',
+          reportLoadingMessage: 'Vui lòng đợi trong khi chúng tôi gửi báo cáo của bạn cho các cơ quan chức năng.',
+          reportSuccessTitle: 'Báo Cáo Đã Gửi Thành Công',
+          reportSuccessMessage: 'Cảm ơn bạn đã báo cáo. Báo cáo của bạn đã được gửi cho các cơ quan chức năng với ID: {reportId}',
+          reportSuccessButton: 'Đóng',
+          reportErrorTitle: 'Báo Cáo Thất Bại',
+          reportErrorMessage: 'Gửi báo cáo thất bại: {error}',
+          reportErrorButton: 'Thử Lại',
+          reportedLabel: '✅ Đã Báo Cáo'
         },
         th: {
           title: 'คำเตือนความปลอดภัยโซเชียลมีเดีย',
@@ -3952,7 +4214,21 @@ export default defineContentScript({
           reportMessage: 'ขอบคุณสำหรับการรายงานโพสต์นี้ เราจะตรวจสอบ',
           footer: 'ได้รับการปกป้องโดย mAIscam Browser Extension',
           recommendedAction: 'การดำเนินการที่แนะนำ:',
-          passcode: 'ฉันเข้าใจ'
+          passcode: 'ฉันเข้าใจ',
+          // Report confirmation popup texts
+          reportConfirmTitle: 'รายงานการฉ้อโกง',
+          reportConfirmMessage: 'คุณแน่ใจหรือไม่ที่จะรายงานสิ่งนี้เป็นการฉ้อโกงต่อเจ้าหน้าที่?',
+          reportConfirmButton: 'ใช่ รายงานการฉ้อโกง',
+          reportCancelButton: 'ยกเลิก',
+          reportLoadingTitle: 'กำลังรายงานการฉ้อโกง...',
+          reportLoadingMessage: 'กรุณารอสักครู่ในขณะที่เราส่งรายงานของคุณไปยังเจ้าหน้าที่',
+          reportSuccessTitle: 'รายงานส่งสำเร็จ',
+          reportSuccessMessage: 'ขอบคุณสำหรับการรายงาน รายงานของคุณได้ถูกส่งไปยังหน่วยงานที่เกี่ยวข้องแล้ว ID: {reportId}',
+          reportSuccessButton: 'ปิด',
+          reportErrorTitle: 'รายงานล้มเหลว',
+          reportErrorMessage: 'ไม่สามารถส่งรายงานได้: {error}',
+          reportErrorButton: 'ลองใหม่',
+          reportedLabel: '✅ รายงานแล้ว'
         }
       };
       
@@ -4190,15 +4466,13 @@ export default defineContentScript({
       // Action buttons
       const buttonContainer = document.createElement('div');
       buttonContainer.style.cssText = `
-        display: flex !important;
-        gap: 12px !important;
         margin-top: 20px !important;
       `;
 
       const leaveButton = document.createElement('button');
       leaveButton.textContent = texts.leaveButton;
       leaveButton.style.cssText = `
-        flex: 1 !important;
+        width: 100% !important;
         padding: 12px !important;
         background-color: #16a34a !important;
         color: white !important;
@@ -4228,40 +4502,48 @@ export default defineContentScript({
         leaveButton.style.backgroundColor = '#16a34a';
       });
 
-      const reportButton = document.createElement('button');
-      reportButton.textContent = texts.reportButton;
-      reportButton.style.cssText = `
-        flex: 1 !important;
+      // Extension report notification
+      const extensionNotification = document.createElement('div');
+      extensionNotification.style.cssText = `
+        background-color: #f3f4f6 !important;
+        border: 2px solid #3b82f6 !important;
+        border-radius: 8px !important;
         padding: 12px !important;
-        background-color: #3b82f6 !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 6px !important;
-        font-weight: 600 !important;
-        cursor: pointer !important;
-        transition: background-color 0.2s !important;
+        margin-top: 12px !important;
+        text-align: center !important;
       `;
-      reportButton.addEventListener('click', () => {
-        // Show different reporting message based on protection type
-        alert(texts.reportMessage);
-        // You can implement different reporting functionality here for email vs website vs social media
-        if (protectionType === 'email') {
-          console.log('📧 Email reported for investigation');
-        } else if (protectionType === 'social_media') {
-          console.log('📱 Facebook post reported for investigation');
-        } else {
-          console.log('🌐 Website reported for investigation');
-        }
-      });
-      reportButton.addEventListener('mouseover', () => {
-        reportButton.style.backgroundColor = '#2563eb';
-      });
-      reportButton.addEventListener('mouseout', () => {
-        reportButton.style.backgroundColor = '#3b82f6';
-      });
+      
+      const extensionIcon = document.createElement('div');
+      extensionIcon.style.cssText = `
+        font-size: 24px !important;
+        margin-bottom: 8px !important;
+      `;
+      extensionIcon.textContent = '🚨';
+      
+      const extensionTitle = document.createElement('div');
+      extensionTitle.style.cssText = `
+        font-weight: 600 !important;
+        color: #1f2937 !important;
+        font-size: 14px !important;
+        margin-bottom: 4px !important;
+      `;
+      const reportTexts = getReportNotificationTexts(language);
+      extensionTitle.textContent = reportTexts.title;
+      
+      const extensionText = document.createElement('div');
+      extensionText.style.cssText = `
+        color: #4b5563 !important;
+        font-size: 12px !important;
+        line-height: 1.4 !important;
+      `;
+      extensionText.innerHTML = reportTexts.description;
+      
+      extensionNotification.appendChild(extensionIcon);
+      extensionNotification.appendChild(extensionTitle);
+      extensionNotification.appendChild(extensionText);
 
       buttonContainer.appendChild(leaveButton);
-      buttonContainer.appendChild(reportButton);
+      // Add the extension notification after the button container instead of a second button
 
       // Footer
       const footer = document.createElement('div');
@@ -4280,6 +4562,7 @@ export default defineContentScript({
       body.appendChild(actionText);
       body.appendChild(ackSection);
       body.appendChild(buttonContainer);
+      body.appendChild(extensionNotification);
       body.appendChild(footer);
 
       modal.appendChild(header);
@@ -4760,3 +5043,401 @@ export default defineContentScript({
     console.log('Content script initialized for:', window.location.hostname);
   },
 });
+
+// Report popup system - Custom multilingual popup for scam reporting
+// REMOVED: Report popup state - no longer needed as reporting is handled in extension sidepanel
+
+// Global storage for extracted data used in reporting
+let lastExtractedData: {
+  website?: any;
+  email?: any;
+  socialmedia?: any;
+} = {};
+
+// DEPRECATED: Report popups are no longer used - reporting is handled in extension sidepanel
+// These functions remain for now but are not called anywhere
+function createReportPopup(texts: any, onConfirm: () => void, onCancel: () => void): HTMLElement {
+  // Create overlay
+  const overlay = document.createElement('div');
+  overlay.style.cssText = `
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    background: rgba(0, 0, 0, 0.7) !important;
+    z-index: 999999 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif !important;
+  `;
+  overlay.id = 'maiscam-report-overlay';
+
+  // Create popup container
+  const popup = document.createElement('div');
+  popup.style.cssText = `
+    background: white !important;
+    border-radius: 12px !important;
+    padding: 24px !important;
+    max-width: 400px !important;
+    width: 90% !important;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3) !important;
+    text-align: center !important;
+    position: relative !important;
+  `;
+
+  // Create title
+  const title = document.createElement('h3');
+  title.textContent = texts.reportConfirmTitle;
+  title.style.cssText = `
+    margin: 0 0 16px 0 !important;
+    font-size: 18px !important;
+    font-weight: 600 !important;
+    color: #1f2937 !important;
+  `;
+
+  // Create message
+  const message = document.createElement('p');
+  message.textContent = texts.reportConfirmMessage;
+  message.style.cssText = `
+    margin: 0 0 24px 0 !important;
+    font-size: 14px !important;
+    color: #4b5563 !important;
+    line-height: 1.5 !important;
+  `;
+
+  // Create button container
+  const buttonContainer = document.createElement('div');
+  buttonContainer.style.cssText = `
+    display: flex !important;
+    gap: 12px !important;
+    justify-content: center !important;
+  `;
+
+  // Create confirm button
+  const confirmButton = document.createElement('button');
+  confirmButton.textContent = texts.reportConfirmButton;
+  confirmButton.style.cssText = `
+    flex: 1 !important;
+    padding: 12px 18px !important;
+    background: #ef4444 !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    cursor: pointer !important;
+    transition: background-color 0.2s !important;
+  `;
+  confirmButton.onmouseover = () => confirmButton.style.backgroundColor = '#dc2626';
+  confirmButton.onmouseout = () => confirmButton.style.backgroundColor = '#ef4444';
+  confirmButton.onclick = () => {
+    document.body.removeChild(overlay);
+    onConfirm();
+  };
+
+  // Create cancel button
+  const cancelButton = document.createElement('button');
+  cancelButton.textContent = texts.reportCancelButton;
+  cancelButton.style.cssText = `
+    flex: 1 !important;
+    padding: 12px 18px !important;
+    background: #f3f4f6 !important;
+    color: #374151 !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    cursor: pointer !important;
+    transition: background-color 0.2s !important;
+  `;
+  cancelButton.onmouseover = () => cancelButton.style.backgroundColor = '#e5e7eb';
+  cancelButton.onmouseout = () => cancelButton.style.backgroundColor = '#f3f4f6';
+  cancelButton.onclick = () => {
+    document.body.removeChild(overlay);
+    onCancel();
+  };
+
+  // Assemble popup
+  buttonContainer.appendChild(cancelButton);
+  buttonContainer.appendChild(confirmButton);
+  popup.appendChild(title);
+  popup.appendChild(message);
+  popup.appendChild(buttonContainer);
+  overlay.appendChild(popup);
+
+  // Close on overlay click
+  overlay.onclick = (e) => {
+    if (e.target === overlay) {
+      document.body.removeChild(overlay);
+      onCancel();
+    }
+  };
+
+  // Close on Escape key
+  const handleEscape = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      document.body.removeChild(overlay);
+      document.removeEventListener('keydown', handleEscape);
+      onCancel();
+    }
+  };
+  document.addEventListener('keydown', handleEscape);
+
+  return overlay;
+}
+
+// Create loading popup
+function createLoadingPopup(texts: any): HTMLElement {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = `
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    background: rgba(0, 0, 0, 0.7) !important;
+    z-index: 999999 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif !important;
+  `;
+  overlay.id = 'maiscam-report-loading';
+
+  const popup = document.createElement('div');
+  popup.style.cssText = `
+    background: white !important;
+    border-radius: 12px !important;
+    padding: 32px !important;
+    max-width: 350px !important;
+    width: 90% !important;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3) !important;
+    text-align: center !important;
+  `;
+
+  // Spinner
+  const spinner = document.createElement('div');
+  spinner.style.cssText = `
+    width: 40px !important;
+    height: 40px !important;
+    border: 4px solid #f3f4f6 !important;
+    border-top: 4px solid #3b82f6 !important;
+    border-radius: 50% !important;
+    animation: spin 1s linear infinite !important;
+    margin: 0 auto 16px auto !important;
+  `;
+
+  // Add keyframes for spinner animation
+  if (!document.getElementById('maiscam-spinner-styles')) {
+    const style = document.createElement('style');
+    style.id = 'maiscam-spinner-styles';
+    style.textContent = `
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  const title = document.createElement('h3');
+  title.textContent = texts.reportLoadingTitle;
+  title.style.cssText = `
+    margin: 0 0 8px 0 !important;
+    font-size: 18px !important;
+    font-weight: 600 !important;
+    color: #1f2937 !important;
+  `;
+
+  const message = document.createElement('p');
+  message.textContent = texts.reportLoadingMessage;
+  message.style.cssText = `
+    margin: 0 !important;
+    font-size: 14px !important;
+    color: #6b7280 !important;
+    line-height: 1.5 !important;
+  `;
+
+  popup.appendChild(spinner);
+  popup.appendChild(title);
+  popup.appendChild(message);
+  overlay.appendChild(popup);
+
+  return overlay;
+}
+
+// Create success popup
+function createSuccessPopup(texts: any, reportId: string, onClose: () => void): HTMLElement {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = `
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    background: rgba(0, 0, 0, 0.7) !important;
+    z-index: 999999 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif !important;
+  `;
+  overlay.id = 'maiscam-report-success';
+
+  const popup = document.createElement('div');
+  popup.style.cssText = `
+    background: white !important;
+    border-radius: 12px !important;
+    padding: 32px !important;
+    max-width: 400px !important;
+    width: 90% !important;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3) !important;
+    text-align: center !important;
+  `;
+
+  // Success icon
+  const icon = document.createElement('div');
+  icon.innerHTML = '✅';
+  icon.style.cssText = `
+    font-size: 48px !important;
+    margin: 0 0 16px 0 !important;
+  `;
+
+  const title = document.createElement('h3');
+  title.textContent = texts.reportSuccessTitle;
+  title.style.cssText = `
+    margin: 0 0 12px 0 !important;
+    font-size: 18px !important;
+    font-weight: 600 !important;
+    color: #059669 !important;
+  `;
+
+  const message = document.createElement('p');
+  message.textContent = texts.reportSuccessMessage.replace('{reportId}', reportId);
+  message.style.cssText = `
+    margin: 0 0 24px 0 !important;
+    font-size: 14px !important;
+    color: #4b5563 !important;
+    line-height: 1.5 !important;
+  `;
+
+  const closeButton = document.createElement('button');
+  closeButton.textContent = texts.reportSuccessButton;
+  closeButton.style.cssText = `
+    padding: 12px 24px !important;
+    background: #059669 !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    cursor: pointer !important;
+    transition: background-color 0.2s !important;
+  `;
+  closeButton.onmouseover = () => closeButton.style.backgroundColor = '#047857';
+  closeButton.onmouseout = () => closeButton.style.backgroundColor = '#059669';
+  closeButton.onclick = () => {
+    document.body.removeChild(overlay);
+    onClose();
+  };
+
+  popup.appendChild(icon);
+  popup.appendChild(title);
+  popup.appendChild(message);
+  popup.appendChild(closeButton);
+  overlay.appendChild(popup);
+
+  return overlay;
+}
+
+// Create error popup
+function createErrorPopup(texts: any, error: string, onRetry: () => void): HTMLElement {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = `
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    background: rgba(0, 0, 0, 0.7) !important;
+    z-index: 999999 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif !important;
+  `;
+  overlay.id = 'maiscam-report-error';
+
+  const popup = document.createElement('div');
+  popup.style.cssText = `
+    background: white !important;
+    border-radius: 12px !important;
+    padding: 32px !important;
+    max-width: 400px !important;
+    width: 90% !important;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3) !important;
+    text-align: center !important;
+  `;
+
+  // Error icon
+  const icon = document.createElement('div');
+  icon.innerHTML = '❌';
+  icon.style.cssText = `
+    font-size: 48px !important;
+    margin: 0 0 16px 0 !important;
+  `;
+
+  const title = document.createElement('h3');
+  title.textContent = texts.reportErrorTitle;
+  title.style.cssText = `
+    margin: 0 0 12px 0 !important;
+    font-size: 18px !important;
+    font-weight: 600 !important;
+    color: #dc2626 !important;
+  `;
+
+  const message = document.createElement('p');
+  message.textContent = texts.reportErrorMessage.replace('{error}', error);
+  message.style.cssText = `
+    margin: 0 0 24px 0 !important;
+    font-size: 14px !important;
+    color: #4b5563 !important;
+    line-height: 1.5 !important;
+  `;
+
+  const retryButton = document.createElement('button');
+  retryButton.textContent = texts.reportErrorButton;
+  retryButton.style.cssText = `
+    padding: 12px 24px !important;
+    background: #dc2626 !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    cursor: pointer !important;
+    transition: background-color 0.2s !important;
+  `;
+  retryButton.onmouseover = () => retryButton.style.backgroundColor = '#b91c1c';
+  retryButton.onmouseout = () => retryButton.style.backgroundColor = '#dc2626';
+  retryButton.onclick = () => {
+    document.body.removeChild(overlay);
+    onRetry();
+  };
+
+  popup.appendChild(icon);
+  popup.appendChild(title);
+  popup.appendChild(message);
+  popup.appendChild(retryButton);
+  overlay.appendChild(popup);
+
+  return overlay;
+}
+
+// REMOVED: Report functionality has been moved to the extension sidepanel
+// The analysis modal now shows a notification directing users to the extension
+// 
+// Old handleScamReport function was here - removed because reporting is now handled
+// entirely in the extension sidepanel for better security and user experience
