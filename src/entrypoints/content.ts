@@ -3820,7 +3820,11 @@ export default defineContentScript({
           reportErrorTitle: 'Report Failed',
           reportErrorMessage: 'Failed to send report: {error}',
           reportErrorButton: 'Try Again',
-          reportedLabel: '✅ Reported'
+          reportedLabel: '✅ Reported',
+          // Legitimate website texts
+          legitimateWebsiteTitle: 'Official Website',
+          legitimateWebsiteMessage: 'This appears to be impersonating a legitimate website. Visit the official site instead:',
+          visitLegitimateButton: 'Visit'
         },
         zh: {
           title: '安全警告',
@@ -3829,7 +3833,7 @@ export default defineContentScript({
           proceedText: '如果您了解风险并仍希望继续，请在下方输入"我明白"：',
           placeholder: '输入"我明白"以继续',
           continueButton: '继续访问网站',
-          leaveButton: '🚪 前往谷歌',
+          leaveButton: '🚪 前往安全网站 (谷歌)',
           reportButton: '📢 举报网站',
           reportMessage: '感谢您举报此网站。我们将对其进行调查。',
           footer: 'mAIscam 浏览器扩展保护',
@@ -3848,7 +3852,11 @@ export default defineContentScript({
           reportErrorTitle: '举报失败',
           reportErrorMessage: '发送举报失败：{error}',
           reportErrorButton: '重试',
-          reportedLabel: '✅ 已举报'
+          reportedLabel: '✅ 已举报',
+          // Legitimate website texts
+          legitimateWebsiteTitle: '官方网站',
+          legitimateWebsiteMessage: '此网站似乎在冒充合法网站。请访问官方网站：',
+          visitLegitimateButton: '访问'
         },
         ms: {
           title: 'AMARAN KESELAMATAN',
@@ -3857,7 +3865,7 @@ export default defineContentScript({
           proceedText: 'Jika anda memahami risiko dan masih ingin meneruskan, taip "SAYA FAHAM" di bawah:',
           placeholder: 'Taip "SAYA FAHAM" untuk meneruskan',
           continueButton: 'TERUSKAN KE LAMAN WEB',
-          leaveButton: '🚪 PERGI KE GOOGLE',
+          leaveButton: '🚪 PERGI KE LAMAN WEB SELAMAT (GOOGLE)',
           reportButton: '📢 LAPORKAN LAMAN',
           reportMessage: 'Terima kasih kerana melaporkan laman web ini. Kami akan menyiasatnya.',
           footer: 'Dilindungi oleh Sambungan Pelayar mAIscam',
@@ -3885,7 +3893,7 @@ export default defineContentScript({
           proceedText: 'Nếu bạn hiểu rủi ro và vẫn muốn tiếp tục, hãy gõ "TÔI HIỂU" bên dưới:',
           placeholder: 'Gõ "TÔI HIỂU" để tiếp tục',
           continueButton: 'TIẾP TỤC ĐẾN TRANG WEB',
-          leaveButton: '🚪 ĐẾN GOOGLE',
+          leaveButton: '🚪 ĐẾN TRANG WEB AN TOÀN (GOOGLE)',
           reportButton: '📢 BÁO CÁO TRANG',
           reportMessage: 'Cảm ơn bạn đã báo cáo trang web này. Chúng tôi sẽ điều tra.',
           footer: 'Được bảo vệ bởi Tiện ích mở rộng mAIscam',
@@ -3913,7 +3921,7 @@ export default defineContentScript({
           proceedText: 'หากคุณเข้าใจความเสี่ยงและยังคงต้องการดำเนินการต่อ ให้พิมพ์ "ฉันเข้าใจ" ด้านล่าง:',
           placeholder: 'พิมพ์ "ฉันเข้าใจ" เพื่อดำเนินการต่อ',
           continueButton: 'ดำเนินการต่อไปยังเว็บไซต์',
-          leaveButton: '🚪 ไปที่ GOOGLE',
+          leaveButton: '🚪 ไปที่เว็บไซต์ปลอดภัย (GOOGLE)',
           reportButton: '📢 รายงานเว็บไซต์',
           reportMessage: 'ขอบคุณสำหรับการรายงานเว็บไซต์นี้ เราจะตรวจสอบ',
           footer: 'ได้รับการปกป้องโดย mAIscam Browser Extension',
@@ -4361,6 +4369,93 @@ export default defineContentScript({
       `;
       actionText.innerHTML = `<strong>💡 ${texts.recommendedAction}</strong><br/>${recommendedAction}`;
 
+      // Legitimate website URL section (show if brand impersonation detected)
+      let legitimateUrlSection: HTMLElement | null = null;
+      const legitimateUrl = analysisResult.legitimate_url;
+      if (legitimateUrl) {
+        legitimateUrlSection = document.createElement('div');
+        legitimateUrlSection.style.cssText = `
+          background: #eff6ff !important;
+          border: 1px solid #3b82f6 !important;
+          border-radius: 8px !important;
+          padding: 16px !important;
+          margin-bottom: 20px !important;
+          color: #374151 !important;
+          line-height: 1.5 !important;
+        `;
+
+        const urlTitle = document.createElement('div');
+        urlTitle.style.cssText = `
+          color: #1e40af !important;
+          font-weight: 600 !important;
+          margin-bottom: 8px !important;
+          font-size: 14px !important;
+        `;
+        urlTitle.innerHTML = `🔗 ${(texts as any).legitimateWebsiteTitle || 'Official Website'}`;
+
+        const urlText = document.createElement('div');
+        urlText.style.cssText = `
+          margin-bottom: 12px !important;
+          font-size: 13px !important;
+        `;
+        urlText.innerHTML = `${(texts as any).legitimateWebsiteMessage || 'This appears to be impersonating a legitimate website. Visit the official site instead:'}`;
+
+        const urlContainer = document.createElement('div');
+        urlContainer.style.cssText = `
+          display: flex !important;
+          align-items: center !important;
+          gap: 8px !important;
+          background: white !important;
+          border: 1px solid #d1d5db !important;
+          border-radius: 6px !important;
+          padding: 8px 12px !important;
+        `;
+
+        const urlDisplay = document.createElement('div');
+        urlDisplay.style.cssText = `
+          flex: 1 !important;
+          font-family: monospace !important;
+          font-size: 12px !important;
+          color: #1e40af !important;
+          word-break: break-all !important;
+        `;
+        urlDisplay.textContent = legitimateUrl;
+
+        const visitButton = document.createElement('button');
+        visitButton.textContent = (texts as any).visitLegitimateButton || 'Visit';
+        visitButton.style.cssText = `
+          background-color: #3b82f6 !important;
+          color: white !important;
+          border: none !important;
+          border-radius: 4px !important;
+          padding: 6px 12px !important;
+          font-size: 12px !important;
+          font-weight: 500 !important;
+          cursor: pointer !important;
+          transition: background-color 0.2s !important;
+          flex-shrink: 0 !important;
+        `;
+
+        visitButton.addEventListener('click', () => {
+          window.open(legitimateUrl, '_blank', 'noopener,noreferrer');
+        });
+
+        visitButton.addEventListener('mouseenter', () => {
+          visitButton.style.backgroundColor = '#2563eb !important';
+        });
+
+        visitButton.addEventListener('mouseleave', () => {
+          visitButton.style.backgroundColor = '#3b82f6 !important';
+        });
+
+        urlContainer.appendChild(urlDisplay);
+        urlContainer.appendChild(visitButton);
+        
+        legitimateUrlSection.appendChild(urlTitle);
+        legitimateUrlSection.appendChild(urlText);
+        legitimateUrlSection.appendChild(urlContainer);
+      }
+
       // Acknowledgment section
       const ackSection = document.createElement('div');
       ackSection.style.cssText = `
@@ -4564,6 +4659,9 @@ export default defineContentScript({
       body.appendChild(riskBadge);
       body.appendChild(analysisText);
       body.appendChild(actionText);
+      if (legitimateUrlSection) {
+        body.appendChild(legitimateUrlSection);
+      }
       body.appendChild(ackSection);
       body.appendChild(buttonContainer);
       body.appendChild(extensionNotification);

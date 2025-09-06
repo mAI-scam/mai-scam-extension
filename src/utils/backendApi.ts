@@ -38,6 +38,7 @@ export interface BackendAnalysisResult {
   reasons: string;
   recommended_action: string;
   detected_language?: string;
+  legitimate_url?: string;
 }
 
 export interface BackendAnalysisResponse {

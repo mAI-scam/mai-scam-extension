@@ -700,7 +700,8 @@ function App() {
         recommended_action: analysisData.recommended_action,
         detected_language: backendResponse.data.detected_language || 'auto-detected',
         target_language: selectedLanguage,
-        target_language_name: LANGUAGE_OPTIONS.find(lang => lang.code === selectedLanguage)?.name || selectedLanguage
+        target_language_name: LANGUAGE_OPTIONS.find(lang => lang.code === selectedLanguage)?.name || selectedLanguage,
+        legitimate_url: analysisData.legitimate_url || backendResponse.data.legitimate_url
       };
 
       console.log('📋 [SIDEBAR - ANALYZE FACEBOOK] Formatted analysis result:', analysisResult);
@@ -801,7 +802,8 @@ function App() {
               recommended_action: backendResponse.data.recommended_action,
               detected_language: backendResponse.data.detected_language || 'unknown',
               target_language: selectedLanguage,
-              target_language_name: LANGUAGE_OPTIONS.find(lang => lang.code === selectedLanguage)?.name || selectedLanguage
+              target_language_name: LANGUAGE_OPTIONS.find(lang => lang.code === selectedLanguage)?.name || selectedLanguage,
+              legitimate_url: backendResponse.data.legitimate_url
             };
             
             // Store analysis result in state for reporting functionality
@@ -942,7 +944,8 @@ function App() {
           recommended_action: backendResponse.data.recommended_action,
           detected_language: backendResponse.data.detected_language || 'unknown',
           target_language: selectedLanguage,
-          target_language_name: LANGUAGE_OPTIONS.find(lang => lang.code === selectedLanguage)?.name || selectedLanguage
+          target_language_name: LANGUAGE_OPTIONS.find(lang => lang.code === selectedLanguage)?.name || selectedLanguage,
+          legitimate_url: backendResponse.data.legitimate_url
         };
         
         // Store analysis result in state for reporting functionality
