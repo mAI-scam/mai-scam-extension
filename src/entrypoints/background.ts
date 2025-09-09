@@ -10,6 +10,25 @@ export default defineBackground(() => {
   // Store the last detected site info for each tab
   let tabSiteInfo: { [tabId: number]: { url: string; detection: SiteDetectionResult; timestamp: number } } = {};
   
+  // Store report status for each tab/analysis - key format: `${tabId}-${analysisHash}`
+  let reportStatus: { [key: string]: { 
+    reportId?: string; 
+    timestamp: number; 
+    scamType: 'email' | 'website' | 'socialmedia';
+    analysisData: any;
+  } } = {};
+  
+  // Store analysis results for each tab - key format: tabId
+  let tabAnalysisState: { [tabId: number]: {
+    analysisResult: any;
+    extractedData: any;
+    websiteData: any;
+    facebookData: any;
+    scamType: 'email' | 'website' | 'socialmedia';
+    timestamp: number;
+    reportStatus?: { reportId?: string; timestamp?: number };
+  } } = {};
+  
   // Auto-detection settings (loaded from storage)
   let autoDetectionEnabled = true;
   
@@ -72,7 +91,9 @@ export default defineBackground(() => {
   browser.action.onClicked.addListener(async (tab) => {
     console.log('Extension icon clicked, opening side panel');
     try {
-      await browser.sidePanel.open({ tabId: tab.id });
+      if (tab.id) {
+        await browser.sidePanel.open({ tabId: tab.id });
+      }
     } catch (error) {
       console.error('Failed to open side panel:', error);
     }
@@ -105,8 +126,7 @@ export default defineBackground(() => {
         console.error(`❌ [AUTO-DETECT] Site detection failed for tab ${tabId}:`, detectionError);
         detection = {
           type: 'website',
-          confidence: 0,
-          shouldAutoAnalyze: false
+          confidence: 0
         };
       }
       
@@ -202,6 +222,15 @@ export default defineBackground(() => {
   // Clean up tab info when tabs are closed
   browser.tabs.onRemoved.addListener((tabId) => {
     delete tabSiteInfo[tabId];
+    delete tabAnalysisState[tabId];
+    
+    // Clean up report status for this tab
+    Object.keys(reportStatus).forEach(key => {
+      if (key.startsWith(`${tabId}-`)) {
+        delete reportStatus[key];
+      }
+    });
+    
     console.log(`🗑️ [AUTO-DETECT] Cleaned up info for closed tab ${tabId}`);
   });
 
@@ -292,7 +321,33 @@ export default defineBackground(() => {
     }
   }
 
+  // Helper function to generate analysis hash for consistent identification
+  function generateAnalysisHash(analysisData: any, scamType: string): string {
+    // Create a simple hash based on the analysis content
+    let hashString = `${scamType}-`;
+    
+    if (scamType === 'email' && analysisData.subject && analysisData.content) {
+      hashString += `${analysisData.subject}-${analysisData.content.substring(0, 100)}`;
+    } else if (scamType === 'website' && analysisData.url && analysisData.title) {
+      hashString += `${analysisData.url}-${analysisData.title}`;
+    } else if (scamType === 'socialmedia' && analysisData.caption && analysisData.username) {
+      hashString += `${analysisData.username}-${analysisData.caption.substring(0, 100)}`;
+    }
+    
+    // Simple hash function
+    let hash = 0;
+    for (let i = 0; i < hashString.length; i++) {
+      const char = hashString.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return Math.abs(hash).toString(36);
+  }
 
+  // Helper function to get report key
+  function getReportKey(tabId: number, analysisHash: string): string {
+    return `${tabId}-${analysisHash}`;
+  }
 
   // Listen for messages from content script and popup
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -481,6 +536,103 @@ export default defineBackground(() => {
       // DOM parsing is now handled directly in content script
       console.log('Screenshot capture requested (legacy)');
       sendResponse({ screenshot: null, error: 'Screenshot capture deprecated - using DOM parsing instead' });
+    } else if (message.type === 'REPORT_SUBMITTED') {
+      // Store report success for this analysis
+      const tabId = sender.tab?.id || message.tabId;
+      if (tabId && message.analysisData && message.scamType && message.reportId) {
+        const analysisHash = generateAnalysisHash(message.analysisData, message.scamType);
+        const reportKey = getReportKey(tabId, analysisHash);
+        
+        reportStatus[reportKey] = {
+          reportId: message.reportId,
+          timestamp: Date.now(),
+          scamType: message.scamType,
+          analysisData: message.analysisData
+        };
+        
+        console.log(`📢 [REPORT] Stored report status for tab ${tabId}:`, reportKey, message.reportId);
+      }
+      sendResponse({ success: true });
+    } else if (message.type === 'GET_REPORT_STATUS') {
+      // Check if this analysis has been reported
+      const tabId = sender.tab?.id || message.tabId;
+      if (tabId && message.analysisData && message.scamType) {
+        const analysisHash = generateAnalysisHash(message.analysisData, message.scamType);
+        const reportKey = getReportKey(tabId, analysisHash);
+        const status = reportStatus[reportKey];
+        
+        console.log(`📢 [REPORT] Report status check for tab ${tabId}:`, reportKey, status ? 'reported' : 'not reported');
+        
+        sendResponse({
+          success: true,
+          reported: !!status,
+          reportId: status?.reportId,
+          timestamp: status?.timestamp
+        });
+      } else {
+        sendResponse({ success: true, reported: false });
+      }
+    } else if (message.type === 'CLEAR_REPORT_STATUS') {
+      // Clear report status for tab switch or new analysis
+      const tabId = sender.tab?.id || message.tabId;
+      if (tabId) {
+        // Clear all report status for this tab
+        Object.keys(reportStatus).forEach(key => {
+          if (key.startsWith(`${tabId}-`)) {
+            delete reportStatus[key];
+          }
+        });
+        console.log(`📢 [REPORT] Cleared report status for tab ${tabId}`);
+      }
+      sendResponse({ success: true });
+    } else if (message.type === 'STORE_ANALYSIS_STATE') {
+      // Store analysis result and extracted data for tab persistence
+      const tabId = sender.tab?.id || message.tabId;
+      if (tabId && message.analysisResult) {
+        const analysisData = message.extractedData || message.websiteData || message.facebookData;
+        const analysisHash = generateAnalysisHash(analysisData, message.scamType);
+        const reportKey = getReportKey(tabId, analysisHash);
+        const existingReport = reportStatus[reportKey];
+        
+        tabAnalysisState[tabId] = {
+          analysisResult: message.analysisResult,
+          extractedData: message.extractedData,
+          websiteData: message.websiteData,
+          facebookData: message.facebookData,
+          scamType: message.scamType,
+          timestamp: Date.now(),
+          reportStatus: existingReport ? { reportId: existingReport.reportId, timestamp: existingReport.timestamp } : undefined
+        };
+        
+        console.log(`💾 [ANALYSIS] Stored analysis state for tab ${tabId}:`, message.scamType);
+      }
+      sendResponse({ success: true });
+    } else if (message.type === 'GET_ANALYSIS_STATE') {
+      // Get stored analysis state for current tab
+      const tabId = sender.tab?.id || message.tabId;
+      if (tabId && tabAnalysisState[tabId]) {
+        const state = tabAnalysisState[tabId];
+        console.log(`📥 [ANALYSIS] Retrieved analysis state for tab ${tabId}:`, state.scamType);
+        sendResponse({
+          success: true,
+          analysisResult: state.analysisResult,
+          extractedData: state.extractedData,
+          websiteData: state.websiteData,
+          facebookData: state.facebookData,
+          scamType: state.scamType,
+          reportStatus: state.reportStatus
+        });
+      } else {
+        sendResponse({ success: true, analysisResult: null });
+      }
+    } else if (message.type === 'CLEAR_ANALYSIS_STATE') {
+      // Clear analysis state for current tab
+      const tabId = sender.tab?.id || message.tabId;
+      if (tabId) {
+        delete tabAnalysisState[tabId];
+        console.log(`🗑️ [ANALYSIS] Cleared analysis state for tab ${tabId}`);
+      }
+      sendResponse({ success: true });
     }
   });
 

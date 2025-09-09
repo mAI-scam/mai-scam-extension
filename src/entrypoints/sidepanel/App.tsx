@@ -87,7 +87,7 @@ const LANGUAGE_OPTIONS = [
   { code: 'ta', name: 'தமிழ் (Tamil)' }
 ];
 
-type ScanMode = 'email' | 'website' | 'social';
+type ScanMode = 'email' | 'website' | 'social' | 'search' | 'banking' | 'ecommerce';
 
 // Multilingual text for report functionality
 const getReportText = (language: string, key: string): string => {
@@ -101,7 +101,9 @@ const getReportText = (language: string, key: string): string => {
       successMessage: 'Thank you for reporting. Your report has been sent to authorities with ID:',
       failed: 'Report Failed',
       close: 'Close',
-      tryAgain: 'Try Again'
+      tryAgain: 'Try Again',
+      reported: 'Reported',
+      reportedAt: 'Reported:'
     },
     zh: {
       detected: '检测到潜在诈骗！',
@@ -112,7 +114,9 @@ const getReportText = (language: string, key: string): string => {
       successMessage: '感谢您的举报。您的举报已发送给当局，ID：',
       failed: '举报失败',
       close: '关闭',
-      tryAgain: '重试'
+      tryAgain: '重试',
+      reported: '已举报',
+      reportedAt: '举报时间：'
     },
     ms: {
       detected: 'Penipuan berpotensi dikesan!',
@@ -123,7 +127,9 @@ const getReportText = (language: string, key: string): string => {
       successMessage: 'Terima kasih kerana melaporkan. Laporan anda telah dihantar kepada pihak berkuasa dengan ID:',
       failed: 'Laporan Gagal',
       close: 'Tutup',
-      tryAgain: 'Cuba Lagi'
+      tryAgain: 'Cuba Lagi',
+      reported: 'Telah Dilaporkan',
+      reportedAt: 'Dilaporkan:'
     },
     vi: {
       detected: 'Đã phát hiện lừa đảo tiềm ẩn!',
@@ -134,7 +140,9 @@ const getReportText = (language: string, key: string): string => {
       successMessage: 'Cảm ơn bạn đã báo cáo. Báo cáo của bạn đã được gửi cho cơ quan chức năng với ID:',
       failed: 'Báo Cáo Thất Bại',
       close: 'Đóng',
-      tryAgain: 'Thử Lại'
+      tryAgain: 'Thử Lại',
+      reported: 'Đã Báo Cáo',
+      reportedAt: 'Báo cáo lúc:'
     },
     th: {
       detected: 'ตรวจพบการฉ้อโกงที่อาจเกิดขึ้น!',
@@ -145,7 +153,9 @@ const getReportText = (language: string, key: string): string => {
       successMessage: 'ขอบคุณสำหรับการรายงาน รายงานของคุณได้ถูกส่งไปยังเจ้าหน้าที่แล้ว ID:',
       failed: 'รายงานล้มเหลว',
       close: 'ปิด',
-      tryAgain: 'ลองใหม่'
+      tryAgain: 'ลองใหม่',
+      reported: 'รายงานแล้ว',
+      reportedAt: 'รายงานเมื่อ:'
     },
     fil: {
       detected: 'Natuklasan ang posibleng scam!',
@@ -156,7 +166,9 @@ const getReportText = (language: string, key: string): string => {
       successMessage: 'Salamat sa pag-ulat. Ang inyong ulat ay naipadala na sa mga awtoridad na may ID:',
       failed: 'Nabigo ang Ulat',
       close: 'Isara',
-      tryAgain: 'Subukan Muli'
+      tryAgain: 'Subukan Muli',
+      reported: 'Naiulat Na',
+      reportedAt: 'Naiulat noong:'
     },
     id: {
       detected: 'Penipuan potensial terdeteksi!',
@@ -167,7 +179,9 @@ const getReportText = (language: string, key: string): string => {
       successMessage: 'Terima kasih telah melaporkan. Laporan Anda telah dikirim ke pihak berwenang dengan ID:',
       failed: 'Laporan Gagal',
       close: 'Tutup',
-      tryAgain: 'Coba Lagi'
+      tryAgain: 'Coba Lagi',
+      reported: 'Sudah Dilaporkan',
+      reportedAt: 'Dilaporkan pada:'
     },
     jv: {
       detected: 'Penipuan potensial katemokake!',
@@ -178,7 +192,9 @@ const getReportText = (language: string, key: string): string => {
       successMessage: 'Matur nuwun sampun nglapokake. Laporan sampeyan wis dikirim menyang panguwasa kanthi ID:',
       failed: 'Laporan Gagal',
       close: 'Tutup',
-      tryAgain: 'Coba Maneh'
+      tryAgain: 'Coba Maneh',
+      reported: 'Wis Dilapokake',
+      reportedAt: 'Dilapokake:'
     },
     su: {
       detected: 'Panipuan poténsial kadeteksi!',
@@ -189,7 +205,9 @@ const getReportText = (language: string, key: string): string => {
       successMessage: 'Hatur nuhun parantos ngalaporkeun. Laporan anjeun parantos dikirim ka otoritas kalayan ID:',
       failed: 'Laporan Gagal',
       close: 'Tutup',
-      tryAgain: 'Coba Deui'
+      tryAgain: 'Coba Deui',
+      reported: 'Geus Dilaporkeun',
+      reportedAt: 'Dilaporkeun:'
     },
     km: {
       detected: 'រកឃើញការបន្លំដែលអាចកើតឡើង!',
@@ -200,7 +218,9 @@ const getReportText = (language: string, key: string): string => {
       successMessage: 'សូមអរគុណសម្រាប់ការរាយការណ៍។ រាយការណ៍របស់អ្នកត្រូវបានផ្ញើទៅអាជ្ញាធរហើយជាមួយ ID:',
       failed: 'រាយការណ៍បរាជ័យ',
       close: 'បិទ',
-      tryAgain: 'ព្យាយាមម្ដងទៀត'
+      tryAgain: 'ព្យាយាមម្ដងទៀត',
+      reported: 'បានរាយការណ៍ហើយ',
+      reportedAt: 'រាយការណ៍នៅ:'
     },
     lo: {
       detected: 'ພົບເຫັນການຫລອກລວງທີ່ເປັນໄປໄດ້!',
@@ -211,7 +231,9 @@ const getReportText = (language: string, key: string): string => {
       successMessage: 'ຂອບໃຈທີ່ລາຍງານ. ລາຍງານຂອງທ່ານໄດ້ຖືກສົ່ງໄປຫາເຈົ້າໜ້າທີ່ແລ້ວພ້ອມ ID:',
       failed: 'ລາຍງານລົ້ມເຫລວ',
       close: 'ປິດ',
-      tryAgain: 'ລອງໃໝ່'
+      tryAgain: 'ລອງໃໝ່',
+      reported: 'ລາຍງານແລ້ວ',
+      reportedAt: 'ລາຍງານເວລາ:'
     },
     my: {
       detected: 'လိမ်လည်မှုဖြစ်နိုင်ချေကို တွေ့ရှိရပါသည်!',
@@ -222,7 +244,9 @@ const getReportText = (language: string, key: string): string => {
       successMessage: 'တိုင်ကြားမှုအတွက် ကျေးဇူးတင်ပါသည်။ သင်၏တိုင်ကြားမှုကို အာဏာပိုင်များထံ ID နှင့်အတူ ပေးပို့ပြီးပါသည်:',
       failed: 'တိုင်ကြားမှု မအောင်မြင်',
       close: 'ပိတ်',
-      tryAgain: 'ထပ်စမ်း'
+      tryAgain: 'ထပ်စမ်း',
+      reported: 'တိုင်ကြားပြီး',
+      reportedAt: 'တိုင်ကြားသည့်အချိန်:'
     },
     ta: {
       detected: 'சாத்தியமான மோசடி கண்டறியப்பட்டது!',
@@ -233,11 +257,36 @@ const getReportText = (language: string, key: string): string => {
       successMessage: 'புகார் செய்ததற்கு நன்றி. உங்கள் புகார் அதிகாரிகளுக்கு ID உடன் அனுப்பப்பட்டுள்ளது:',
       failed: 'புகார் தோல்வியடைந்தது',
       close: 'மூடு',
-      tryAgain: 'மீண்டும் முயற்சி'
+      tryAgain: 'மீண்டும் முயற்சி',
+      reported: 'புகார் செய்யப்பட்டது',
+      reportedAt: 'புகார் செய்த நேரம்:'
     }
   };
   
   return reportTexts[language]?.[key] || reportTexts.en[key] || key;
+};
+
+// Helper function to check if analysis has been reported
+const checkReportStatus = async (analysisData: any, scamType: 'email' | 'website' | 'socialmedia'): Promise<{ reported: boolean; reportId?: string; timestamp?: number }> => {
+  try {
+    const response = await browser.runtime.sendMessage({
+      type: 'GET_REPORT_STATUS',
+      analysisData,
+      scamType
+    });
+    
+    if (response?.success) {
+      return {
+        reported: response.reported,
+        reportId: response.reportId,
+        timestamp: response.timestamp
+      };
+    }
+  } catch (error) {
+    console.error('Failed to check report status:', error);
+  }
+  
+  return { reported: false };
 };
 
 // Helper function to check if risk level requires reporting (supports all languages)
@@ -284,6 +333,7 @@ function App() {
   const [reportLoading, setReportLoading] = useState(false);
   const [reportSuccess, setReportSuccess] = useState<string | null>(null);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [alreadyReported, setAlreadyReported] = useState<{ reportId?: string; timestamp?: number } | null>(null);
 
   // Initialize auto-detection and check for ongoing extractions when sidebar opens
   useEffect(() => {
@@ -344,6 +394,34 @@ function App() {
               // Don't set error for this as it's not critical
             }
           }
+          
+          // Try to restore any existing analysis state for this tab
+          try {
+            const storedState = await browser.runtime.sendMessage({ type: 'GET_ANALYSIS_STATE' });
+            if (storedState?.success && storedState.analysisResult) {
+              console.log(`🔄 [SIDEBAR INIT] Restoring analysis state for current tab:`, storedState.scamType);
+              
+              // Restore analysis result and data
+              setAnalysisResult(storedState.analysisResult);
+              if (storedState.extractedData) {
+                setExtractedData(storedState.extractedData);
+              }
+              if (storedState.websiteData) {
+                setWebsiteData(storedState.websiteData);
+              }
+              if (storedState.facebookData) {
+                setFacebookData(storedState.facebookData);
+              }
+              
+              // Restore report status if available
+              if (storedState.reportStatus) {
+                setAlreadyReported(storedState.reportStatus);
+                console.log(`🔄 [SIDEBAR INIT] Restored report status:`, storedState.reportStatus);
+              }
+            }
+          } catch (error) {
+            console.error('Failed to restore analysis state on init:', error);
+          }
         }
       } catch (error) {
         console.error('Critical error initializing auto-detection:', error);
@@ -398,7 +476,7 @@ function App() {
       // Update current tab ID
       setCurrentTabId(tabId);
       
-      // Clear previous data
+      // Clear previous data first
       setExtractedData(null);
       setWebsiteData(null);
       setFacebookData(null);
@@ -411,6 +489,35 @@ function App() {
       setReportSuccess(null);
       setReportError(null);
       setReportLoading(false);
+      setAlreadyReported(null);
+      
+      // Try to restore analysis state for this tab
+      try {
+        const storedState = await browser.runtime.sendMessage({ type: 'GET_ANALYSIS_STATE' });
+        if (storedState?.success && storedState.analysisResult) {
+          console.log(`🔄 [SIDEBAR] Restoring analysis state for tab ${tabId}:`, storedState.scamType);
+          
+          // Restore analysis result and data
+          setAnalysisResult(storedState.analysisResult);
+          if (storedState.extractedData) {
+            setExtractedData(storedState.extractedData);
+          }
+          if (storedState.websiteData) {
+            setWebsiteData(storedState.websiteData);
+          }
+          if (storedState.facebookData) {
+            setFacebookData(storedState.facebookData);
+          }
+          
+          // Restore report status if available
+          if (storedState.reportStatus) {
+            setAlreadyReported(storedState.reportStatus);
+            console.log(`🔄 [SIDEBAR] Restored report status for tab ${tabId}:`, storedState.reportStatus);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to restore analysis state:', error);
+      }
       
       if (tabInfo?.detection) {
         // Update auto-detected site info
@@ -485,6 +592,10 @@ function App() {
         setReportSuccess(null);
         setReportError(null);
         setReportLoading(false);
+        setAlreadyReported(null);
+        
+        // Clear report status in background
+        browser.runtime.sendMessage({ type: 'CLEAR_REPORT_STATUS' }).catch(() => {});
         
         // If this is Facebook and we're switching to it, check for existing data
         if (tabInfo.detection.type === 'social' && tabInfo.detection.platform === 'facebook') {
@@ -709,6 +820,25 @@ function App() {
       // Store analysis result in state for reporting functionality
       setAnalysisResult(analysisResult);
       
+      // Check if this analysis has already been reported
+      const reportStatus = await checkReportStatus(facebookPostData, 'socialmedia');
+      if (reportStatus.reported) {
+        setAlreadyReported({ reportId: reportStatus.reportId, timestamp: reportStatus.timestamp });
+        console.log('📢 [SIDEBAR - ANALYZE FACEBOOK] Analysis already reported:', reportStatus);
+      } else {
+        setAlreadyReported(null);
+      }
+      
+      // Store analysis state in background for tab persistence
+      browser.runtime.sendMessage({
+        type: 'STORE_ANALYSIS_STATE',
+        analysisResult: analysisResult,
+        facebookData: facebookPostData,
+        scamType: 'socialmedia'
+      }).catch((error) => {
+        console.error('Failed to store analysis state:', error);
+      });
+      
       // Show analysis result on website if tabId is provided
       if (tabId) {
         console.log('📱 [SIDEBAR - ANALYZE FACEBOOK] Showing analysis result on website...');
@@ -808,6 +938,25 @@ function App() {
             
             // Store analysis result in state for reporting functionality
             setAnalysisResult(analysisData);
+            
+            // Check if this analysis has already been reported
+            const reportStatus = await checkReportStatus(gmailData, 'email');
+            if (reportStatus.reported) {
+              setAlreadyReported({ reportId: reportStatus.reportId, timestamp: reportStatus.timestamp });
+              console.log('📢 [SIDEBAR - ANALYZE EMAIL] Analysis already reported:', reportStatus);
+            } else {
+              setAlreadyReported(null);
+            }
+            
+            // Store analysis state in background for tab persistence
+            browser.runtime.sendMessage({
+              type: 'STORE_ANALYSIS_STATE',
+              analysisResult: analysisData,
+              extractedData: gmailData,
+              scamType: 'email'
+            }).catch((error) => {
+              console.error('Failed to store analysis state:', error);
+            });
             
             // Show analysis result modal on website
             await browser.tabs.sendMessage(tabs[0].id, { 
@@ -951,6 +1100,25 @@ function App() {
         // Store analysis result in state for reporting functionality
         setAnalysisResult(analysisData);
         
+        // Check if this analysis has already been reported
+        const reportStatus = await checkReportStatus(websiteData, 'website');
+        if (reportStatus.reported) {
+          setAlreadyReported({ reportId: reportStatus.reportId, timestamp: reportStatus.timestamp });
+          console.log('📢 [SIDEBAR - ANALYZE WEBSITE] Analysis already reported:', reportStatus);
+        } else {
+          setAlreadyReported(null);
+        }
+        
+        // Store analysis state in background for tab persistence
+        browser.runtime.sendMessage({
+          type: 'STORE_ANALYSIS_STATE',
+          analysisResult: analysisData,
+          websiteData: websiteData,
+          scamType: 'website'
+        }).catch((error) => {
+          console.error('Failed to store analysis state:', error);
+        });
+        
         // Show analysis result modal on website
         await browser.tabs.sendMessage(tabs[0].id, { 
           type: 'SHOW_ANALYSIS_MODAL', 
@@ -1088,6 +1256,24 @@ function App() {
       if (reportResponse.success) {
         setReportSuccess(`${getReportText(selectedLanguage, 'successMessage')} ${reportResponse.data.report_id}`);
         console.log('✅ [SIDEBAR] Report submitted successfully:', reportResponse);
+        
+        // Store report status in background script
+        const analysisData = scamType === 'email' ? extractedData : scamType === 'website' ? websiteData : facebookData;
+        browser.runtime.sendMessage({
+          type: 'REPORT_SUBMITTED',
+          analysisData,
+          scamType,
+          reportId: reportResponse.data.report_id
+        }).catch((error) => {
+          console.error('Failed to store report status in background:', error);
+        });
+        
+        // Update local state to show reported status
+        setAlreadyReported({ 
+          reportId: reportResponse.data.report_id, 
+          timestamp: Date.now() 
+        });
+        
       } else {
         throw new Error(reportResponse.message || 'Report submission failed');
       }
@@ -1268,6 +1454,11 @@ function App() {
                   setReportSuccess(null);
                   setReportError(null);
                   setReportLoading(false);
+                  setAlreadyReported(null);
+                  
+                  // Clear stored analysis state and report status in background
+                  browser.runtime.sendMessage({ type: 'CLEAR_ANALYSIS_STATE' }).catch(() => {});
+                  browser.runtime.sendMessage({ type: 'CLEAR_REPORT_STATUS' }).catch(() => {});
                 }}
                 className="w-full px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors font-medium text-sm"
               >
@@ -1309,27 +1500,44 @@ function App() {
                 
                 <div className="text-center">
                   <p className="text-sm text-red-700 mb-3">
-                    🚨 <strong>{getReportText(selectedLanguage, 'detected')}</strong> {getReportText(selectedLanguage, 'question')}
+                    🚨 <strong>{getReportText(selectedLanguage, 'detected')}</strong> {alreadyReported ? '' : getReportText(selectedLanguage, 'question')}
                   </p>
-                  <button
-                    onClick={() => handleSubmitReport(scanMode === 'social' ? 'socialmedia' : scanMode as 'email' | 'website' | 'socialmedia')}
-                    disabled={reportLoading}
-                    className="w-full px-4 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-                  >
-                    {reportLoading ? (
-                      <>
-                        <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        {getReportText(selectedLanguage, 'reporting')}
-                      </>
-                    ) : (
-                      <>
-                        📢 {getReportText(selectedLanguage, 'button')}
-                      </>
-                    )}
-                  </button>
+                  
+                  {alreadyReported ? (
+                    <div className="space-y-2">
+                      <div className="w-full px-4 py-2 bg-green-600 text-white font-medium rounded-lg flex items-center justify-center gap-2 cursor-not-allowed">
+                        ✅ {getReportText(selectedLanguage, 'reported')}
+                      </div>
+                      <p className="text-xs text-green-700">
+                        Report ID: {alreadyReported.reportId}
+                        {alreadyReported.timestamp && (
+                          <span className="block">
+                            {getReportText(selectedLanguage, 'reportedAt')} {new Date(alreadyReported.timestamp).toLocaleString()}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => handleSubmitReport(scanMode === 'social' ? 'socialmedia' : scanMode as 'email' | 'website' | 'socialmedia')}
+                      disabled={reportLoading}
+                      className="w-full px-4 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+                    >
+                      {reportLoading ? (
+                        <>
+                          <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          {getReportText(selectedLanguage, 'reporting')}
+                        </>
+                      ) : (
+                        <>
+                          📢 {getReportText(selectedLanguage, 'button')}
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
 
                 {/* Report Status Messages */}
