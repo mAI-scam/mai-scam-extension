@@ -121,7 +121,7 @@ export interface ScamReportResponse {
 // Backend API configuration
 const BACKEND_CONFIG = {
   // Use deployed API as primary, localhost as fallback
-  baseUrl: 'https://mai-scam-backend-uat.onrender.com',
+  baseUrl: 'https://j6xblx0im9.execute-api.us-east-1.amazonaws.com/',
   fallbackUrls: [
     'https://mai-scam-backend-uat.onrender.com',
     'https://j6xblx0im9.execute-api.us-east-1.amazonaws.com/',

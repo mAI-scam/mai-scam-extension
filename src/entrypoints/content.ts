@@ -690,6 +690,7 @@ export default defineContentScript({
           isSecure: boolean;
           protocol: string;
         };
+        ssl_valid?: boolean;
         security?: {
           hasCSP?: boolean;
           hasXFrameOptions?: boolean;
@@ -1294,11 +1295,19 @@ export default defineContentScript({
           metadata.favicon = faviconLink.href;
         }
 
-        // SSL Information
+        // SSL Information - format expected by backend API
+        const isHttps = window.location.protocol === 'https:';
         metadata.ssl = {
-          isSecure: window.location.protocol === 'https:',
+          isSecure: isHttps,
           protocol: window.location.protocol
         };
+
+        // Backend API expects these fields in the root metadata
+        // Note: Browser can't get actual SSL certificate details or domain registration date
+        // Only provide what we can reliably detect
+        if (isHttps) {
+          metadata.ssl_valid = true; // HTTPS is present, but we can't verify cert validity from DOM
+        }
 
         // Security Headers (limited to what we can detect from DOM)
         metadata.security = {
@@ -1308,77 +1317,98 @@ export default defineContentScript({
           hasXSSProtection: !!document.querySelector('meta[http-equiv="X-XSS-Protection"]')
         };
 
-        // SEO Metadata
-        metadata.seo = {};
-        
+        // SEO Metadata - only include if data exists
+        const seoData: any = {};
+
         const canonicalLink = document.querySelector('link[rel="canonical"]') as HTMLLinkElement;
         if (canonicalLink?.href) {
-          metadata.seo.canonical = canonicalLink.href;
+          seoData.canonical = canonicalLink.href;
         }
-        
+
         const robotsMeta = document.querySelector('meta[name="robots"]') as HTMLMetaElement;
         if (robotsMeta?.content) {
-          metadata.seo.robots = robotsMeta.content;
+          seoData.robots = robotsMeta.content;
         }
-        
+
         const viewportMeta = document.querySelector('meta[name="viewport"]') as HTMLMetaElement;
         if (viewportMeta?.content) {
-          metadata.seo.viewport = viewportMeta.content;
+          seoData.viewport = viewportMeta.content;
         }
 
-        // Social Media Metadata (Open Graph, Twitter)
-        metadata.social = {};
-        
+        // Only add SEO object if we have actual data
+        if (Object.keys(seoData).length > 0) {
+          metadata.seo = seoData;
+        }
+
+        // Social Media Metadata - only include if data exists
+        const socialData: any = {};
+
         const ogTitle = document.querySelector('meta[property="og:title"]') as HTMLMetaElement;
         if (ogTitle?.content) {
-          metadata.social.ogTitle = ogTitle.content;
-        }
-        
-        const ogDescription = document.querySelector('meta[property="og:description"]') as HTMLMetaElement;
-        if (ogDescription?.content) {
-          metadata.social.ogDescription = ogDescription.content;
-        }
-        
-        const ogImage = document.querySelector('meta[property="og:image"]') as HTMLMetaElement;
-        if (ogImage?.content) {
-          metadata.social.ogImage = ogImage.content;
-        }
-        
-        const ogUrl = document.querySelector('meta[property="og:url"]') as HTMLMetaElement;
-        if (ogUrl?.content) {
-          metadata.social.ogUrl = ogUrl.content;
-        }
-        
-        const twitterCard = document.querySelector('meta[name="twitter:card"]') as HTMLMetaElement;
-        if (twitterCard?.content) {
-          metadata.social.twitterCard = twitterCard.content;
+          socialData.ogTitle = ogTitle.content;
         }
 
-        // Technical Metadata
-        metadata.technical = {};
-        
+        const ogDescription = document.querySelector('meta[property="og:description"]') as HTMLMetaElement;
+        if (ogDescription?.content) {
+          socialData.ogDescription = ogDescription.content;
+        }
+
+        const ogImage = document.querySelector('meta[property="og:image"]') as HTMLMetaElement;
+        if (ogImage?.content) {
+          socialData.ogImage = ogImage.content;
+        }
+
+        const ogUrl = document.querySelector('meta[property="og:url"]') as HTMLMetaElement;
+        if (ogUrl?.content) {
+          socialData.ogUrl = ogUrl.content;
+        }
+
+        const twitterCard = document.querySelector('meta[name="twitter:card"]') as HTMLMetaElement;
+        if (twitterCard?.content) {
+          socialData.twitterCard = twitterCard.content;
+        }
+
+        // Only add social object if we have actual data
+        if (Object.keys(socialData).length > 0) {
+          metadata.social = socialData;
+        }
+
+        // Technical Metadata - only include if data exists
+        const technicalData: any = {};
+
         const charsetMeta = document.querySelector('meta[charset]') as HTMLMetaElement;
         if (charsetMeta?.getAttribute('charset')) {
-          metadata.technical.charset = charsetMeta.getAttribute('charset');
+          technicalData.charset = charsetMeta.getAttribute('charset');
         }
-        
+
         const generatorMeta = document.querySelector('meta[name="generator"]') as HTMLMetaElement;
         if (generatorMeta?.content) {
-          metadata.technical.generator = generatorMeta.content;
+          technicalData.generator = generatorMeta.content;
         }
-        
-        const languageMeta = document.querySelector('meta[name="language"]') as HTMLMetaElement || 
+
+        const languageMeta = document.querySelector('meta[name="language"]') as HTMLMetaElement ||
                             document.querySelector('html[lang]') as HTMLHtmlElement;
         if (languageMeta) {
-          metadata.technical.language = languageMeta.getAttribute('content') || languageMeta.getAttribute('lang') || undefined;
+          const lang = languageMeta.getAttribute('content') || languageMeta.getAttribute('lang');
+          if (lang) {
+            technicalData.language = lang;
+          }
         }
-        
+
         // Collect all http-equiv meta tags
         const httpEquivMetas = document.querySelectorAll('meta[http-equiv]');
         if (httpEquivMetas.length > 0) {
-          metadata.technical.httpEquiv = Array.from(httpEquivMetas).map(meta => 
+          const httpEquivData = Array.from(httpEquivMetas).map(meta =>
             `${meta.getAttribute('http-equiv')}: ${meta.getAttribute('content')}`
           ).filter(Boolean);
+          if (httpEquivData.length > 0) {
+            technicalData.httpEquiv = httpEquivData;
+          }
+        }
+
+        // Only add technical object if we have actual data
+        if (Object.keys(technicalData).length > 0) {
+          metadata.technical = technicalData;
         }
 
         // Link Analysis for suspicious activity
