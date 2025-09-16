@@ -749,6 +749,7 @@ export default defineContentScript({
         reactions?: number;
         retweets?: number;
         replies?: number;
+        views?: number;
       };
       uniqueId?: string; // Added for robust post identification
     }
@@ -766,6 +767,7 @@ export default defineContentScript({
         shares?: number;
         retweets?: number;
         replies?: number;
+        views?: number;
       };
       uniqueId?: string; // Added for robust post identification
     }
@@ -1006,25 +1008,27 @@ export default defineContentScript({
     function findTwitterPosts(): Array<{element: HTMLElement, hasImage: boolean, hasVideo: boolean}> {
       const posts: Array<{element: HTMLElement, hasImage: boolean, hasVideo: boolean}> = [];
 
-      // Multiple selectors for different Twitter layouts and post types
+      // Enhanced selectors for different Twitter layouts and post types - prioritizing most reliable
       const postSelectors = [
-        // Main timeline posts (modern Twitter/X)
-        '[data-testid="tweet"]',
+        // Primary modern Twitter/X selectors (most reliable)
         'article[data-testid="tweet"]',
+        '[data-testid="tweet"]',
         '[data-testid="cellInnerDiv"] article',
-        // Legacy Twitter selectors
+        // Enhanced timeline selectors for dynamic content
+        '[data-testid="primaryColumn"] article[data-testid="tweet"]',
+        '[data-testid="primaryColumn"] [data-testid="tweet"]',
+        // Profile page selectors
+        '[data-testid="UserTweets-tweets"] article[data-testid="tweet"]',
+        '[data-testid="UserTweets-tweets"] [data-testid="tweet"]',
+        // Thread and conversation selectors
+        '[data-testid="conversation-tweet"] article',
+        // Legacy Twitter selectors (fallback)
         '.tweet',
         '.js-stream-tweet',
         '.js-tweet',
-        // Tweet thread elements
-        '[data-testid="tweetText"]',
-        // Profile posts
-        'div[data-testid="tweet"] > div',
-        // Alternative selectors for different layouts
+        // Alternative layouts
         '[role="article"]',
-        '.r-1habvwh', // Common tweet container class
-        // Broader selectors
-        'div[lang]' // Tweets often have lang attribute
+        '.r-1habvwh' // Common tweet container class
       ];
 
       for (const selector of postSelectors) {
@@ -1037,18 +1041,24 @@ export default defineContentScript({
             // Check if this post has a video
             const hasVideo = element.querySelector('video, [data-testid="videoPlayer"], [data-testid="playButton"]') !== null;
 
-            // Skip posts that are too small (likely not actual posts)
+            // Enhanced post validation
             const rect = element.getBoundingClientRect();
+
+            // Skip posts that are too small (likely not actual posts)
             if (rect.height < 50 || rect.width < 200) return;
 
             // Skip if already added (same element might match multiple selectors)
             if (posts.some(p => p.element === element)) return;
 
-            // Skip quote tweets and replies (too complex for initial implementation)
+            // Enhanced validation - ensure it's a real tweet with content
+            const hasTweetText = element.querySelector('[data-testid="tweetText"]');
+            if (!hasTweetText) return;
+
+            // Skip quote tweets and replies for cleaner selection
             if (element.querySelector('[data-testid="socialContext"]')) return;
 
-            // Only include posts with images for initial implementation
-            if (hasImage) {
+            // Include posts with images or videos (expanded from image-only)
+            if (hasImage || hasVideo) {
               posts.push({
                 element: element as HTMLElement,
                 hasImage,
@@ -1062,12 +1072,30 @@ export default defineContentScript({
       }
 
       // Remove duplicates and sort by position on page
-      return posts.filter((post, index, self) =>
+      const uniquePosts = posts.filter((post, index, self) =>
         index === self.findIndex(p => p.element === post.element)
       ).filter((post) => {
-        // Additional filtering: make sure post is visible and has reasonable size
+        // Enhanced filtering for better post detection
         const rect = post.element.getBoundingClientRect();
-        return rect.height > 100 && rect.width > 200;
+
+        // Make sure post is visible and has reasonable size
+        if (rect.height < 100 || rect.width < 200) return false;
+
+        // Ensure post is actually visible in viewport (not way off screen)
+        if (rect.top < -1000 || rect.top > window.innerHeight + 1000) return false;
+
+        // Validate it has essential tweet elements
+        const hasValidContent = post.element.querySelector('[data-testid="tweetText"]');
+        if (!hasValidContent) return false;
+
+        return true;
+      });
+
+      // Sort posts by their position on the page (top to bottom)
+      return uniquePosts.sort((a, b) => {
+        const rectA = a.element.getBoundingClientRect();
+        const rectB = b.element.getBoundingClientRect();
+        return rectA.top - rectB.top;
       });
     }
 
@@ -1209,28 +1237,141 @@ export default defineContentScript({
           }
         }
 
-        // Extract engagement metrics
+        // Extract engagement metrics with enhanced detection
         const engagement_metrics: TwitterPostData['engagement_metrics'] = {};
 
-        // Extract likes, retweets, replies
-        const metricsSelectors = [
+        console.log('=== Starting Twitter engagement metrics extraction ===');
+
+        // Helper function to parse engagement counts (handles K, M suffixes)
+        const parseEngagementCount = (text: string): number | undefined => {
+          if (!text) return undefined;
+          const cleanText = text.trim().toLowerCase();
+          if (cleanText === '' || cleanText === '0') return 0;
+
+          const numberMatch = cleanText.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*([km]?)/);
+          if (!numberMatch) return undefined;
+
+          let number = parseFloat(numberMatch[1].replace(/,/g, ''));
+          const suffix = numberMatch[2];
+
+          if (suffix === 'k') number *= 1000;
+          else if (suffix === 'm') number *= 1000000;
+
+          return Math.floor(number);
+        };
+
+        // Extract likes
+        console.log('🔍 Looking for likes...');
+        const likeSelectors = [
+          '[data-testid="like"] span[data-testid="app-text-transition-container"]',
           '[data-testid="like"] span',
-          '[data-testid="retweet"] span',
-          '[data-testid="reply"] span',
-          '.tweet-stats-container span'
+          '[aria-label*="like" i] span',
+          '[aria-label*="Like" i]',
+          'button[data-testid="like"] span'
         ];
 
-        metricsSelectors.forEach(selector => {
-          const element = postElement.querySelector(selector);
-          if (element && element.textContent?.trim()) {
-            const count = parseInt(element.textContent.replace(/[^\d]/g, ''));
-            if (count > 0) {
-              if (selector.includes('like')) engagement_metrics.likes = count;
-              if (selector.includes('retweet')) engagement_metrics.retweets = count;
-              if (selector.includes('reply')) engagement_metrics.replies = count;
+        for (const selector of likeSelectors) {
+          const elements = postElement.querySelectorAll(selector);
+          for (const element of elements) {
+            const text = element.textContent?.trim();
+            const ariaLabel = element.getAttribute('aria-label');
+            const count = parseEngagementCount(text || '') || parseEngagementCount(ariaLabel || '');
+
+            if (count !== undefined) {
+              engagement_metrics.likes = count;
+              console.log(`✅ Likes found: ${count} from "${text || ariaLabel}"`);
+              break;
             }
           }
-        });
+          if (engagement_metrics.likes !== undefined) break;
+        }
+
+        // Extract retweets
+        console.log('🔍 Looking for retweets...');
+        const retweetSelectors = [
+          '[data-testid="retweet"] span[data-testid="app-text-transition-container"]',
+          '[data-testid="retweet"] span',
+          '[aria-label*="repost" i] span',
+          '[aria-label*="retweet" i] span',
+          'button[data-testid="retweet"] span'
+        ];
+
+        for (const selector of retweetSelectors) {
+          const elements = postElement.querySelectorAll(selector);
+          for (const element of elements) {
+            const text = element.textContent?.trim();
+            const ariaLabel = element.getAttribute('aria-label');
+            const count = parseEngagementCount(text || '') || parseEngagementCount(ariaLabel || '');
+
+            if (count !== undefined) {
+              engagement_metrics.retweets = count;
+              console.log(`✅ Retweets found: ${count} from "${text || ariaLabel}"`);
+              break;
+            }
+          }
+          if (engagement_metrics.retweets !== undefined) break;
+        }
+
+        // Extract replies
+        console.log('🔍 Looking for replies...');
+        const replySelectors = [
+          '[data-testid="reply"] span[data-testid="app-text-transition-container"]',
+          '[data-testid="reply"] span',
+          '[aria-label*="repl" i] span',
+          '[aria-label*="comment" i] span',
+          'button[data-testid="reply"] span'
+        ];
+
+        for (const selector of replySelectors) {
+          const elements = postElement.querySelectorAll(selector);
+          for (const element of elements) {
+            const text = element.textContent?.trim();
+            const ariaLabel = element.getAttribute('aria-label');
+            const count = parseEngagementCount(text || '') || parseEngagementCount(ariaLabel || '');
+
+            if (count !== undefined) {
+              engagement_metrics.replies = count;
+              console.log(`✅ Replies found: ${count} from "${text || ariaLabel}"`);
+              break;
+            }
+          }
+          if (engagement_metrics.replies !== undefined) break;
+        }
+
+        // Extract views (newer Twitter feature)
+        console.log('🔍 Looking for views...');
+        const viewSelectors = [
+          '[data-testid="analytics"] span',
+          '[aria-label*="view" i] span',
+          '[aria-label*=" views" i]',
+          'span[title*="view" i]',
+          // Views are often shown as tooltip text or aria-labels
+          'a[href$="/analytics"] span',
+          'div[role="group"] span[title*="view" i]'
+        ];
+
+        for (const selector of viewSelectors) {
+          const elements = postElement.querySelectorAll(selector);
+          for (const element of elements) {
+            const text = element.textContent?.trim();
+            const ariaLabel = element.getAttribute('aria-label');
+            const title = element.getAttribute('title');
+
+            const count = parseEngagementCount(text || '') ||
+                         parseEngagementCount(ariaLabel || '') ||
+                         parseEngagementCount(title || '');
+
+            if (count !== undefined && count > 0) {
+              engagement_metrics.views = count;
+              console.log(`✅ Views found: ${count} from "${text || ariaLabel || title}"`);
+              break;
+            }
+          }
+          if (engagement_metrics.views !== undefined) break;
+        }
+
+        console.log('🎯 Final Twitter engagement metrics:', engagement_metrics);
+        console.log('=== Twitter engagement metrics extraction complete ===');
 
         console.log('Extracted Twitter post data:', {
           username,
@@ -5480,7 +5621,7 @@ export default defineContentScript({
       return null;
     }
 
-    // Function to find specific Twitter post to blur
+    // Enhanced function to find specific Twitter post to blur with improved robustness
     function findSpecificTwitterPost(postData: any): HTMLElement | null {
       if (!postData) {
         console.warn('❌ No post data provided to find specific Twitter post');
@@ -5493,39 +5634,167 @@ export default defineContentScript({
         captionStart: postData.caption?.substring(0, 50) + '...'
       });
 
-      // First priority: Find by unique identifier if available
+      // Strategy 1: Find by unique identifier if available
       if (postData.uniqueId) {
         const markedPost = document.querySelector(`[data-maiscam-selected-post="${postData.uniqueId}"]`);
         if (markedPost) {
           console.log('🎯 Found Twitter post by unique ID:', postData.uniqueId);
           return markedPost as HTMLElement;
         } else {
-          console.warn('⚠️ Marked post with unique ID not found:', postData.uniqueId);
+          console.warn('⚠️ Marked post with unique ID not found, trying alternative methods...');
+
+          // Try to find if the post is still in DOM but lost its marking
+          const posts = findTwitterPosts();
+          for (const post of posts) {
+            if (post.element.getAttribute('data-maiscam-selected-post') === postData.uniqueId) {
+              console.log('🎯 Found post with unique ID via direct attribute check');
+              return post.element;
+            }
+          }
         }
       }
 
-      // Second priority: Try to match based on username and caption
+      // Strategy 2: Enhanced content matching with fuzzy matching
       const posts = findTwitterPosts();
+      console.log(`🔍 Searching through ${posts.length} posts for content match...`);
+
+      let bestMatch: HTMLElement | null = null;
+      let bestMatchScore = 0;
+
       for (const post of posts) {
         const currentPostData = extractTwitterPostData(post);
-        if (currentPostData &&
-            currentPostData.username === postData.username &&
-            currentPostData.caption === postData.caption) {
-          console.log('🎯 Found matching Twitter post by content');
-          console.log('🔍 Matched by username:', currentPostData.username);
-          console.log('🔍 Matched by caption:', currentPostData.caption.substring(0, 100) + '...');
+        if (!currentPostData) continue;
+
+        let matchScore = 0;
+
+        // Exact username match (high weight)
+        if (currentPostData.username === postData.username) {
+          matchScore += 40;
+        }
+
+        // Caption matching with partial matching (supports partial text changes)
+        if (currentPostData.caption && postData.caption) {
+          const currentCaption = currentPostData.caption.toLowerCase().trim();
+          const targetCaption = postData.caption.toLowerCase().trim();
+
+          if (currentCaption === targetCaption) {
+            matchScore += 40; // Exact match
+          } else if (currentCaption.includes(targetCaption.substring(0, 50)) ||
+                     targetCaption.includes(currentCaption.substring(0, 50))) {
+            matchScore += 25; // Partial match
+          } else {
+            // Check for word overlap
+            const currentWords = currentCaption.split(/\s+/).filter((w: string) => w.length > 3);
+            const targetWords = targetCaption.split(/\s+/).filter((w: string) => w.length > 3);
+            const commonWords = currentWords.filter((w: string) => targetWords.includes(w));
+
+            if (commonWords.length >= 2) {
+              matchScore += 15; // Word overlap
+            }
+          }
+        }
+
+        // Image presence matching
+        if (currentPostData.image && postData.image) {
+          matchScore += 10;
+        }
+
+        // Timestamp proximity (if available)
+        if (currentPostData.timestamp && postData.timestamp) {
+          matchScore += 5;
+        }
+
+        // Engagement metrics similarity
+        if (currentPostData.engagement_metrics && postData.engagement_metrics) {
+          const currentLikes = currentPostData.engagement_metrics.likes || 0;
+          const targetLikes = postData.engagement_metrics.likes || 0;
+
+          if (Math.abs(currentLikes - targetLikes) <= 5) {
+            matchScore += 10;
+          }
+        }
+
+        console.log(`📊 Post match score: ${matchScore} for user "${currentPostData.username}"`);
+
+        if (matchScore > bestMatchScore && matchScore >= 40) { // Minimum threshold for reliability
+          bestMatch = post.element;
+          bestMatchScore = matchScore;
+        }
+      }
+
+      if (bestMatch) {
+        console.log(`🎯 Found best matching Twitter post with score: ${bestMatchScore}`);
+        return bestMatch;
+      }
+
+      // Strategy 3: Relaxed matching for posts further down (may have been dynamically loaded)
+      console.log('🔍 Trying relaxed matching for posts that may have changed...');
+
+      for (const post of posts) {
+        const currentPostData = extractTwitterPostData(post);
+        if (!currentPostData) continue;
+
+        // Just match on username if it's unique enough
+        if (currentPostData.username === postData.username && currentPostData.username !== 'Unknown User') {
+          console.log('⚠️ Found post by username-only match (relaxed criteria)');
           return post.element;
         }
       }
 
-      // Last resort: find the first post with an image (most likely candidate)
-      const postWithImage = posts.find(post => post.hasImage);
-      if (postWithImage) {
-        console.log('⚠️ Using fallback: first Twitter post with image for blur protection');
-        return postWithImage.element;
+      // Strategy 4: Find by image characteristics if this was an image post
+      if (postData.image) {
+        console.log('🔍 Looking for posts with similar image characteristics...');
+
+        const imagePost = posts.find(post => {
+          if (!post.hasImage) return false;
+
+          const img = post.element.querySelector('img[src*="pbs.twimg.com"]');
+          return img !== null;
+        });
+
+        if (imagePost) {
+          console.log('⚠️ Found post by image characteristics');
+          return imagePost.element;
+        }
       }
 
-      console.warn('❌ Could not find Twitter post to blur');
+      // Strategy 5: Smart fallback - find the most likely candidate instead of just "first with image"
+      console.log('🔍 Using smart fallback to find most likely post...');
+
+      // Prefer posts with engagement metrics similar to our target
+      if (postData.engagement_metrics) {
+        const targetLikes = postData.engagement_metrics.likes || 0;
+
+        const similarEngagementPost = posts.find(post => {
+          const currentData = extractTwitterPostData(post);
+          if (!currentData?.engagement_metrics) return false;
+
+          const currentLikes = currentData.engagement_metrics.likes || 0;
+          return Math.abs(currentLikes - targetLikes) <= 10;
+        });
+
+        if (similarEngagementPost) {
+          console.log('⚠️ Using smart fallback: post with similar engagement metrics');
+          return similarEngagementPost.element;
+        }
+      }
+
+      // Final fallback: Find posts with content and images (better than just any image)
+      const contentPost = posts.find(post => {
+        if (!post.hasImage) return false;
+
+        const hasTweetText = post.element.querySelector('[data-testid="tweetText"]');
+        const hasUserName = post.element.querySelector('[data-testid="User-Name"]');
+
+        return hasTweetText && hasUserName;
+      });
+
+      if (contentPost) {
+        console.log('⚠️ Using final fallback: first valid post with content and image');
+        return contentPost.element;
+      }
+
+      console.warn('❌ Could not find any suitable Twitter post to blur');
       return null;
     }
 
