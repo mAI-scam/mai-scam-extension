@@ -18,6 +18,9 @@ export default defineConfig({
     ],
     host_permissions: [
       '*://mail.google.com/*',
+      '*://*.facebook.com/*',
+      '*://*.twitter.com/*',
+      '*://*.x.com/*',
       'http://*/*',
       'https://*/*'
     ],

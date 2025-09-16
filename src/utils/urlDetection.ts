@@ -517,6 +517,9 @@ export function getAnalysisMethod(siteType: DetectedSiteType, platform?: string)
       if (platform === 'facebook') {
         return 'analyzeFacebook';
       }
+      if (platform === 'twitter') {
+        return 'analyzeTwitter';
+      }
       return 'analyzeSocialMedia';
     case 'website':
     default:
@@ -585,7 +588,7 @@ export function supportsContentExtraction(result: SiteDetectionResult): boolean 
   
   // Social media platforms with dedicated extraction logic
   if (result.type === 'social') {
-    return result.platform === 'facebook'; // Currently only Facebook has extraction
+    return result.platform === 'facebook' || result.platform === 'twitter'; // Facebook and Twitter have extraction
   }
   
   // All website types support general content extraction

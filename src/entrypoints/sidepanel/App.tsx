@@ -70,6 +70,22 @@ interface FacebookPostData {
   };
 }
 
+interface TwitterPostData {
+  username: string;
+  caption: string;
+  image?: string;
+  postUrl: string;
+  timestamp?: string;
+  author_followers_count?: number;
+  engagement_metrics?: {
+    likes?: number;
+    comments?: number;
+    shares?: number;
+    retweets?: number;
+    replies?: number;
+  };
+}
+
 // Language options with their display names
 const LANGUAGE_OPTIONS = [
   { code: 'en', name: 'English' },
@@ -317,9 +333,11 @@ function App() {
   const [extractedData, setExtractedData] = useState<GmailData | null>(null);
   const [websiteData, setWebsiteData] = useState<WebsiteData | null>(null);
   const [facebookData, setFacebookData] = useState<FacebookPostData | null>(null);
+  const [twitterData, setTwitterData] = useState<TwitterPostData | null>(null);
   const [selectedLanguage, setSelectedLanguage] = useState<string>('zh');
   const [scanMode, setScanMode] = useState<ScanMode>('email');
   const [facebookExtractionInProgress, setFacebookExtractionInProgress] = useState(false);
+  const [twitterExtractionInProgress, setTwitterExtractionInProgress] = useState(false);
   
   // Auto-detection state
   const [autoDetectedSite, setAutoDetectedSite] = useState<SiteDetectionResult | null>(null);
@@ -394,6 +412,25 @@ function App() {
               // Don't set error for this as it's not critical
             }
           }
+
+          // Check for ongoing Twitter extraction specifically with error handling
+          if (tabs[0].url.includes('twitter.com') || tabs[0].url.includes('x.com')) {
+            try {
+              const response = await browser.tabs.sendMessage(tabs[0].id, { type: 'CHECK_TWITTER_EXTRACTION_STATUS' });
+              if (response?.inProgress) {
+                setTwitterExtractionInProgress(true);
+                setLoading(true);
+                setScanMode('social');
+                pollForTwitterData(tabs[0].id);
+              } else if (response?.data) {
+                setTwitterData(response.data);
+                setScanMode('social');
+              }
+            } catch (twitterError) {
+              console.error('Failed to check Twitter extraction status:', twitterError);
+              // Don't set error for this as it's not critical
+            }
+          }
           
           // Try to restore any existing analysis state for this tab
           try {
@@ -412,7 +449,10 @@ function App() {
               if (storedState.facebookData) {
                 setFacebookData(storedState.facebookData);
               }
-              
+              if (storedState.twitterData) {
+                setTwitterData(storedState.twitterData);
+              }
+
               // Restore report status if available
               if (storedState.reportStatus) {
                 setAlreadyReported(storedState.reportStatus);
@@ -480,10 +520,12 @@ function App() {
       setExtractedData(null);
       setWebsiteData(null);
       setFacebookData(null);
+      setTwitterData(null);
       setAnalysisResult(null);
       setError(null);
       setLoading(false);
       setFacebookExtractionInProgress(false);
+      setTwitterExtractionInProgress(false);
       
       // Clear report status when switching tabs
       setReportSuccess(null);
@@ -508,7 +550,10 @@ function App() {
           if (storedState.facebookData) {
             setFacebookData(storedState.facebookData);
           }
-          
+          if (storedState.twitterData) {
+            setTwitterData(storedState.twitterData);
+          }
+
           // Restore report status if available
           if (storedState.reportStatus) {
             setAlreadyReported(storedState.reportStatus);
@@ -539,6 +584,22 @@ function App() {
             }
           } catch (error) {
             console.error('Failed to check Facebook status on tab switch:', error);
+          }
+        }
+
+        // If this is Twitter and we're switching to it, check for existing data
+        if (tabInfo.detection.type === 'social' && tabInfo.detection.platform === 'twitter') {
+          try {
+            const response = await browser.tabs.sendMessage(tabId, { type: 'CHECK_TWITTER_EXTRACTION_STATUS' });
+            if (response?.inProgress) {
+              setTwitterExtractionInProgress(true);
+              setLoading(true);
+              pollForTwitterData(tabId);
+            } else if (response?.data) {
+              setTwitterData(response.data);
+            }
+          } catch (error) {
+            console.error('Failed to check Twitter status on tab switch:', error);
           }
         }
       } else {
@@ -587,6 +648,7 @@ function App() {
         setExtractedData(null);
         setWebsiteData(null);
         setFacebookData(null);
+        setTwitterData(null);
         
         // Clear report status when URL changes
         setReportSuccess(null);
@@ -610,6 +672,22 @@ function App() {
             }
           } catch (error) {
             console.error('Failed to check Facebook status on URL change:', error);
+          }
+        }
+
+        // If this is Twitter and we're switching to it, check for existing data
+        if (tabInfo.detection.type === 'social' && tabInfo.detection.platform === 'twitter') {
+          try {
+            const response = await browser.tabs.sendMessage(tabId, { type: 'CHECK_TWITTER_EXTRACTION_STATUS' });
+            if (response?.inProgress) {
+              setTwitterExtractionInProgress(true);
+              setLoading(true);
+              pollForTwitterData(tabId);
+            } else if (response?.data) {
+              setTwitterData(response.data);
+            }
+          } catch (error) {
+            console.error('Failed to check Twitter status on URL change:', error);
           }
         }
       }
@@ -712,7 +790,200 @@ function App() {
     }, 60000);
   };
 
+  // Function to poll for Twitter extraction completion
+  const pollForTwitterData = async (tabId: number) => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await browser.tabs.sendMessage(tabId, { type: 'CHECK_TWITTER_EXTRACTION_STATUS' });
+        if (!response?.inProgress) {
+          clearInterval(pollInterval);
+          setTwitterExtractionInProgress(false);
 
+          if (response?.data) {
+            setTwitterData(response.data);
+            // Automatically analyze the extracted Twitter post with backend
+            await analyzeTwitterPost(response.data, tabId);
+          } else {
+            setLoading(false);
+            setError('Twitter extraction was cancelled or failed.');
+          }
+        }
+      } catch (error) {
+        console.error('Error polling for Twitter data:', error);
+        clearInterval(pollInterval);
+        setLoading(false);
+        setTwitterExtractionInProgress(false);
+        setError('Lost connection to Twitter extraction.');
+      }
+    }, 1000); // Poll every second
+
+    // Stop polling after 60 seconds to prevent infinite polling
+    setTimeout(() => {
+      clearInterval(pollInterval);
+      if (twitterExtractionInProgress) {
+        setLoading(false);
+        setTwitterExtractionInProgress(false);
+        setError('Twitter extraction timed out.');
+      }
+    }, 60000);
+  };
+
+  // Function to analyze Twitter post with backend API
+  const analyzeTwitterPost = async (twitterPostData: TwitterPostData, tabId?: number) => {
+    try {
+      console.log('🐦 [SIDEBAR - ANALYZE TWITTER] Starting Twitter post analysis...');
+
+      // Show loading modal on website if tabId is provided
+      if (tabId) {
+        console.log('🐦 [SIDEBAR - ANALYZE TWITTER] Showing loading modal on website...');
+        await browser.tabs.sendMessage(tabId, {
+          type: 'SHOW_ANALYSIS_MODAL',
+          result: null,
+          loading: true,
+          analysisType: 'social_media'
+        });
+      }
+
+      // Convert image to base64 if present
+      let base64Image: string | undefined = undefined;
+      if (twitterPostData.image && tabId) {
+        try {
+          console.log('📷 [SIDEBAR - ANALYZE TWITTER] Converting image to base64...');
+          // Use content script to convert image since it has access to the page context
+          const base64Response = await browser.tabs.sendMessage(tabId, {
+            type: 'CONVERT_IMAGE_TO_BASE64',
+            imageUrl: twitterPostData.image
+          });
+
+          if (base64Response && base64Response.success && base64Response.base64) {
+            base64Image = base64Response.base64;
+            console.log('✅ [SIDEBAR - ANALYZE TWITTER] Image converted to base64 successfully');
+          } else {
+            console.error('❌ [SIDEBAR - ANALYZE TWITTER] Content script failed to convert image:', base64Response?.error);
+          }
+        } catch (error) {
+          console.error('❌ [SIDEBAR - ANALYZE TWITTER] Failed to convert image to base64:', error);
+          // Continue without image if conversion fails
+        }
+      }
+
+      // Prepare social media request for backend
+      const socialMediaRequest: SocialMediaAnalysisRequest = {
+        platform: 'twitter',
+        content: twitterPostData.caption || '',
+        author_username: twitterPostData.username || '',
+        target_language: selectedLanguage,
+        image: base64Image,
+        post_url: twitterPostData.postUrl || '',
+        author_followers_count: twitterPostData.author_followers_count,
+        engagement_metrics: twitterPostData.engagement_metrics
+      };
+
+      // Store the backend request data for debugging display
+      setBackendRequestData({
+        type: 'social_media',
+        data: socialMediaRequest,
+        timestamp: new Date().toISOString()
+      });
+
+      console.log('📤 [SIDEBAR - ANALYZE TWITTER] Sending to backend:', JSON.stringify(socialMediaRequest, null, 2));
+
+      // Call backend API v2 for social media analysis
+      const backendResponse = await analyzeSocialMediaWithBackend(socialMediaRequest, 'ANALYZE TWITTER POST - SIDEBAR V2 CONTEXT');
+
+      console.log('📥 [SIDEBAR - ANALYZE TWITTER] Backend response:', JSON.stringify(backendResponse, null, 2));
+
+      if (!backendResponse.success || !backendResponse.data) {
+        throw new Error('Invalid response from backend');
+      }
+
+      console.log('🔍 [SIDEBAR - ANALYZE TWITTER] Parsing backend response structure...');
+      console.log('📋 [SIDEBAR - ANALYZE TWITTER] Data keys:', Object.keys(backendResponse.data));
+
+      // Extract analysis data - social media API returns nested under language code
+      let analysisData;
+      const responseData = backendResponse.data as any; // Type assertion for social media response
+      if (responseData[selectedLanguage]) {
+        // Social media API format: data.{language_code}.{analysis_fields}
+        analysisData = responseData[selectedLanguage];
+        console.log('✅ [SIDEBAR - ANALYZE TWITTER] Found analysis data under language code:', selectedLanguage);
+      } else if (backendResponse.data.risk_level) {
+        // Direct format (fallback): data.{analysis_fields}
+        analysisData = backendResponse.data;
+        console.log('✅ [SIDEBAR - ANALYZE TWITTER] Found analysis data in direct format');
+      } else {
+        console.error('❌ [SIDEBAR - ANALYZE TWITTER] Could not find analysis data in response');
+        throw new Error('Analysis data not found in response');
+      }
+
+      console.log('📊 [SIDEBAR - ANALYZE TWITTER] Extracted analysis data:', analysisData);
+
+      // Format the analysis result
+      const analysisResult = {
+        risk_level: analysisData.risk_level,
+        analysis: analysisData.analysis || analysisData.reasons, // Handle both field names
+        recommended_action: analysisData.recommended_action,
+        detected_language: backendResponse.data.detected_language || 'auto-detected',
+        target_language: selectedLanguage,
+        target_language_name: LANGUAGE_OPTIONS.find(lang => lang.code === selectedLanguage)?.name || selectedLanguage,
+        legitimate_url: analysisData.legitimate_url || backendResponse.data.legitimate_url
+      };
+
+      console.log('📋 [SIDEBAR - ANALYZE TWITTER] Formatted analysis result:', analysisResult);
+
+      // Store analysis result in state for reporting functionality
+      setAnalysisResult(analysisResult);
+
+      // Check if this analysis has already been reported
+      const reportStatus = await checkReportStatus(twitterPostData, 'socialmedia');
+      if (reportStatus.reported) {
+        setAlreadyReported({ reportId: reportStatus.reportId, timestamp: reportStatus.timestamp });
+        console.log('📢 [SIDEBAR - ANALYZE TWITTER] Analysis already reported:', reportStatus);
+      } else {
+        setAlreadyReported(null);
+      }
+
+      // Store analysis state in background for tab persistence
+      browser.runtime.sendMessage({
+        type: 'STORE_ANALYSIS_STATE',
+        analysisResult: analysisResult,
+        twitterData: twitterPostData,
+        scamType: 'socialmedia'
+      }).catch((error) => {
+        console.error('Failed to store analysis state:', error);
+      });
+
+      // Show analysis result on website if tabId is provided
+      if (tabId) {
+        console.log('🐦 [SIDEBAR - ANALYZE TWITTER] Showing analysis result on website...');
+        await browser.tabs.sendMessage(tabId, {
+          type: 'SHOW_ANALYSIS_MODAL',
+          result: analysisResult,
+          loading: false,
+          analysisType: 'social_media'
+        });
+      }
+
+      console.log('✅ [SIDEBAR - ANALYZE TWITTER] Twitter post analysis completed successfully');
+
+    } catch (error: any) {
+      console.error('❌ [SIDEBAR - ANALYZE TWITTER] Twitter analysis error:', error);
+
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred during analysis';
+      setError(`Twitter analysis failed: ${errorMessage}`);
+
+      // Show error on website if tabId is provided
+      if (tabId) {
+        await browser.tabs.sendMessage(tabId, {
+          type: 'SHOW_ANALYSIS_ERROR',
+          error: errorMessage,
+          language: selectedLanguage
+        });
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Function to analyze Facebook post with backend API
   const analyzeFacebookPost = async (facebookPostData: FacebookPostData, tabId?: number) => {
@@ -1215,20 +1486,27 @@ function App() {
           website_data: websiteReportData,
           user_comment: `Report submitted from mAIscam extension at ${new Date().toISOString()}`
         };
-      } else if (scamType === 'socialmedia' && facebookData) {
+      } else if (scamType === 'socialmedia' && (facebookData || twitterData)) {
+        const socialData = facebookData || twitterData;
+        const platform = facebookData ? 'facebook' : 'twitter';
+
+        if (!socialData) {
+          throw new Error('No social media data available for reporting');
+        }
+
         const socialMediaReportData: SocialMediaScamReportData = {
-          platform: 'facebook',
-          content: facebookData.caption,
-          author_username: facebookData.username,
-          post_url: facebookData.postUrl,
-          author_followers_count: facebookData.author_followers_count,
-          engagement_metrics: facebookData.engagement_metrics,
+          platform: platform,
+          content: socialData.caption,
+          author_username: socialData.username,
+          post_url: socialData.postUrl,
+          author_followers_count: socialData.author_followers_count,
+          engagement_metrics: socialData.engagement_metrics,
           risk_level: analysisResult.risk_level,
           analysis: analysisResult.analysis,
           recommended_action: analysisResult.recommended_action,
           text_analysis: undefined, // Could add if available
           image_analysis: undefined, // Could add if available
-          multimodal: !!facebookData.image,
+          multimodal: !!socialData.image,
           content_hash: undefined // Could add hash generation if needed
         };
 
@@ -1258,7 +1536,7 @@ function App() {
         console.log('✅ [SIDEBAR] Report submitted successfully:', reportResponse);
         
         // Store report status in background script
-        const analysisData = scamType === 'email' ? extractedData : scamType === 'website' ? websiteData : facebookData;
+        const analysisData = scamType === 'email' ? extractedData : scamType === 'website' ? websiteData : scamType === 'socialmedia' ? (facebookData || twitterData) : null;
         browser.runtime.sendMessage({
           type: 'REPORT_SUBMITTED',
           analysisData,
@@ -1333,6 +1611,46 @@ function App() {
       console.error('Error starting Facebook extraction:', err);
       setError('Error starting Facebook extraction. Please try again.');
       setFacebookExtractionInProgress(false);
+      setLoading(false);
+    }
+  };
+
+  const scanTwitterPost = async () => {
+    // Check if extraction is already in progress
+    if (twitterExtractionInProgress) {
+      setError('Twitter extraction is already in progress. Please wait or cancel the current extraction.');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setTwitterData(null);
+    setTwitterExtractionInProgress(true);
+
+    try {
+      const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+      if (tabs[0]?.id) {
+        // Check if we're on Twitter/X
+        if (!tabs[0].url?.includes('twitter.com') && !tabs[0].url?.includes('x.com')) {
+          setError('Please navigate to Twitter/X to use this feature.');
+          return;
+        }
+
+        // Start Twitter post extraction (this will show the overlay and wait for user selection)
+        // The extraction will continue even if the sidebar closes
+        await browser.tabs.sendMessage(tabs[0].id, { type: 'START_TWITTER_EXTRACTION' });
+        console.log('Twitter extraction started - sidebar can now be closed');
+
+        // Start polling for completion
+        pollForTwitterData(tabs[0].id);
+
+      } else {
+        setError('No active tab found.');
+      }
+    } catch (err: any) {
+      console.error('Error starting Twitter extraction:', err);
+      setError('Error starting Twitter extraction. Please try again.');
+      setTwitterExtractionInProgress(false);
       setLoading(false);
     }
   };
@@ -1423,30 +1741,38 @@ function App() {
           <div className="space-y-2">
             <button
               onClick={
-                scanMode === 'email' ? analyzeEmailForScam : 
-                scanMode === 'website' ? analyzeWebsiteForScam : 
-                scanFacebookPost
+                scanMode === 'email' ? analyzeEmailForScam :
+                scanMode === 'website' ? analyzeWebsiteForScam :
+                autoDetectedSite?.platform === 'facebook' ? scanFacebookPost :
+                autoDetectedSite?.platform === 'twitter' ? scanTwitterPost :
+                scanFacebookPost  // Default fallback
               }
               disabled={loading}
               className="w-full px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed transition-colors font-medium"
             >
-              {loading 
-                ? (scanMode === 'email' ? 'Analyzing Email...' : 
-                   scanMode === 'website' ? 'Analyzing Website...' : 
-                   facebookExtractionInProgress ? 'Waiting for Post Selection...' : 'Starting Facebook Extraction...') 
-                : (scanMode === 'email' ? `🛡️ Analyze ${autoDetectedSite?.platform === 'gmail' ? 'Gmail Email' : 'Email'}` : 
-                   scanMode === 'website' ? '🛡️ Analyze Website' : 
-                   scanMode === 'social' && autoDetectedSite?.platform === 'facebook' ? '📱 Scan Facebook Post' : '📱 Scan Social Media')
+              {loading
+                ? (scanMode === 'email' ? 'Analyzing Email...' :
+                   scanMode === 'website' ? 'Analyzing Website...' :
+                   autoDetectedSite?.platform === 'facebook' ? (facebookExtractionInProgress ? 'Waiting for Post Selection...' : 'Starting Facebook Extraction...') :
+                   autoDetectedSite?.platform === 'twitter' ? (twitterExtractionInProgress ? 'Waiting for Post Selection...' : 'Starting Twitter Extraction...') :
+                   'Starting Social Media Extraction...')
+                : (scanMode === 'email' ? `🛡️ Analyze ${autoDetectedSite?.platform === 'gmail' ? 'Gmail Email' : 'Email'}` :
+                   scanMode === 'website' ? '🛡️ Analyze Website' :
+                   autoDetectedSite?.platform === 'facebook' ? '📱 Scan Facebook Post' :
+                   autoDetectedSite?.platform === 'twitter' ? '🐦 Scan Twitter/X Post' :
+                   '📱 Scan Social Media')
               }
             </button>
             
-            {(extractedData || websiteData || facebookData) && (
+            {(extractedData || websiteData || facebookData || twitterData) && (
               <button
                 onClick={() => {
                   setExtractedData(null);
                   setWebsiteData(null);
                   setFacebookData(null);
+                  setTwitterData(null);
                   setFacebookExtractionInProgress(false);
+                  setTwitterExtractionInProgress(false);
                   setError(null);
                   setAnalysisResult(null);
                   
@@ -1487,10 +1813,23 @@ function App() {
             </div>
           )}
 
+          {/* Twitter Extraction Progress */}
+          {twitterExtractionInProgress && !twitterData && (
+            <div className="p-3 bg-sky-100 border border-sky-400 text-sky-700 rounded-lg">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-sky-600 border-t-transparent"></div>
+                <span className="font-semibold">Twitter Extraction in Progress</span>
+              </div>
+              <p className="text-sm">
+                Please go to the Twitter/X tab and select a post. You can close this sidebar - we'll remember your selection!
+              </p>
+            </div>
+          )}
+
           {/* Extracted Data Display - All removed for cleaner UI, data still extracted and logged to console */}
 
           {/* Report Section - Show only report functionality when medium/high risk is detected */}
-          {analysisResult && (extractedData || websiteData || facebookData) && shouldShowReportFunction(analysisResult) && (
+          {analysisResult && (extractedData || websiteData || facebookData || twitterData) && shouldShowReportFunction(analysisResult) && (
             <div className="space-y-4">
               <div className="bg-red-50 border border-red-200 rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-3">
@@ -1572,7 +1911,7 @@ function App() {
           )}
 
           {/* Empty State */}
-          {!loading && !error && !extractedData && !websiteData && !facebookData && (
+          {!loading && !error && !extractedData && !websiteData && !facebookData && !twitterData && (
               <div className="text-center text-gray-500 py-8">
                 <div className="mb-4">
                   <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1585,11 +1924,15 @@ function App() {
                    'Ready to scan social media posts'}
                 </p>
                 <p className="text-xs text-gray-400">
-                  {scanMode === 'email' 
+                  {scanMode === 'email'
                     ? 'Open an email in Gmail and click "Analyze Email" to check for threats'
                     : scanMode === 'website'
                     ? 'Navigate to any website and click "Analyze Website" to extract information'
-                    : 'Navigate to Facebook and click "Scan Facebook Post" to extract post data'
+                    : autoDetectedSite?.platform === 'facebook'
+                    ? 'Navigate to Facebook and click "Scan Facebook Post" to extract post data'
+                    : autoDetectedSite?.platform === 'twitter'
+                    ? 'Navigate to Twitter/X and click "Scan Twitter Post" to extract post data'
+                    : 'Navigate to a social media site (Facebook or Twitter) to scan posts'
                   }
                 </p>
               </div>

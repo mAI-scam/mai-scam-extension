@@ -24,6 +24,17 @@ export default defineContentScript({
       startTime: null
     };
 
+    // State management for Twitter extraction
+    let twitterExtractionState: {
+      inProgress: boolean;
+      data: TwitterPostData | null;
+      startTime: number | null;
+    } = {
+      inProgress: false,
+      data: null,
+      startTime: null
+    };
+
     // Function to notify background script of URL change
     function notifyUrlChange(newUrl: string) {
       console.log('🔄 [CONTENT] URL changed from', currentUrl, 'to', newUrl);
@@ -736,7 +747,512 @@ export default defineContentScript({
         comments?: number;
         shares?: number;
         reactions?: number;
+        retweets?: number;
+        replies?: number;
       };
+      uniqueId?: string; // Added for robust post identification
+    }
+
+    interface TwitterPostData {
+      username: string;
+      caption: string;
+      image?: string;
+      postUrl: string;
+      timestamp?: string;
+      author_followers_count?: number;
+      engagement_metrics?: {
+        likes?: number;
+        comments?: number;
+        shares?: number;
+        retweets?: number;
+        replies?: number;
+      };
+      uniqueId?: string; // Added for robust post identification
+    }
+
+    // ================== TWITTER EXTRACTION FUNCTIONS ==================
+
+    async function startTwitterPostExtraction(): Promise<void> {
+      try {
+        console.log('Starting Twitter post data extraction...');
+
+        // Check if we're on Twitter
+        if (!window.location.hostname.includes('twitter.com') && !window.location.hostname.includes('x.com')) {
+          console.error('Not on Twitter/X domain');
+          return;
+        }
+
+        // Set extraction state
+        twitterExtractionState.inProgress = true;
+        twitterExtractionState.data = null;
+        twitterExtractionState.startTime = Date.now();
+
+        // Create overlay for post selection
+        const overlay = createTwitterPostSelectionOverlay();
+        document.body.appendChild(overlay);
+
+        // Set up the extraction process
+        setupTwitterPostSelection(overlay);
+
+      } catch (error) {
+        console.error('Error starting Twitter post data extraction:', error);
+        twitterExtractionState.inProgress = false;
+      }
+    }
+
+    // Function to set up Twitter post selection
+    function setupTwitterPostSelection(overlay: HTMLDivElement): void {
+      // Find all Twitter posts on the page
+      const posts = findTwitterPosts();
+      console.log(`Found ${posts.length} Twitter posts`);
+
+      if (posts.length === 0) {
+        overlay.remove();
+        // Remove instructions if they exist
+        const instructions = document.querySelector('[style*="transform: translate(-50%, -50%)"]');
+        if (instructions) instructions.remove();
+        twitterExtractionState.inProgress = false;
+        return;
+      }
+
+      // Add click handlers to posts for selection
+      console.log('Adding selectors to', posts.length, 'posts');
+      posts.forEach((post, index) => {
+        const postElement = post.element;
+        console.log(`Adding selector to post ${index + 1}:`, postElement);
+
+        // Create selection indicator
+        const indicator = document.createElement('div');
+        indicator.className = 'maiscam-twitter-post-selector';
+        indicator.style.cssText = `
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(29, 155, 240, 0.1);
+          border: 3px solid #1d9bf0;
+          border-radius: 12px;
+          cursor: pointer;
+          z-index: 10001;
+          pointer-events: auto;
+          transition: all 0.2s ease;
+        `;
+
+        // Make post element relative if it's not already
+        const computedStyle = window.getComputedStyle(postElement);
+        if (computedStyle.position === 'static') {
+          postElement.style.position = 'relative';
+        }
+
+        // Add selection badge
+        const badge = document.createElement('div');
+        badge.textContent = `${index + 1}`;
+        badge.style.cssText = `
+          position: absolute;
+          top: -10px;
+          right: -10px;
+          background: #1d9bf0;
+          color: white;
+          width: 30px;
+          height: 30px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: bold;
+          font-size: 14px;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          z-index: 10002;
+        `;
+        indicator.appendChild(badge);
+
+        // Add click handler
+        indicator.onclick = () => {
+          console.log('User selected Twitter post:', post);
+
+          // Add unique identifier to the selected post element for later matching
+          const uniqueId = `maiscam-twitter-selected-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          post.element.setAttribute('data-maiscam-selected-post', uniqueId);
+
+          // Remove all selection overlays and instructions
+          document.querySelectorAll('.maiscam-twitter-post-selector').forEach(el => el.remove());
+          overlay.remove();
+
+          // Remove instructions
+          const instructions = document.querySelector('[style*="transform: translate(-50%, -50%)"]');
+          if (instructions) instructions.remove();
+
+          // Remove cancel button
+          const cancelBtn = document.querySelector('[style*="position: fixed"][style*="top: 20px"][style*="right: 20px"]');
+          if (cancelBtn) cancelBtn.remove();
+
+          // Extract data from selected post
+          const extractedData = extractTwitterPostData(post);
+
+          // Add the unique identifier to the extracted data for matching
+          if (extractedData) {
+            extractedData.uniqueId = uniqueId;
+          }
+
+          twitterExtractionState.data = extractedData;
+          twitterExtractionState.inProgress = false;
+
+          // Store extracted social media data for reporting
+          lastExtractedData.socialmedia = extractedData;
+
+          console.log('Twitter extraction completed with ID:', uniqueId, extractedData);
+
+          // Show success notification to user
+          showPostSelectionSuccess();
+        };
+
+        // Add hover effects
+        indicator.onmouseenter = () => {
+          indicator.style.background = 'rgba(29, 155, 240, 0.2)';
+          badge.style.background = '#1a8cd8';
+        };
+        indicator.onmouseleave = () => {
+          indicator.style.background = 'rgba(29, 155, 240, 0.1)';
+          badge.style.background = '#1d9bf0';
+        };
+
+        postElement.appendChild(indicator);
+      });
+
+      // Add cancel button to overlay
+      const cancelButton = document.createElement('button');
+      cancelButton.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: #ef4444;
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 8px;
+        font-weight: bold;
+        cursor: pointer;
+        z-index: 10002;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+        pointer-events: auto;
+      `;
+      cancelButton.textContent = '✕ Cancel';
+      cancelButton.onclick = () => {
+        document.querySelectorAll('.maiscam-twitter-post-selector').forEach(el => el.remove());
+        overlay.remove();
+        // Remove instructions
+        const instructions = document.querySelector('[style*="transform: translate(-50%, -50%)"]');
+        if (instructions) instructions.remove();
+        cancelButton.remove();
+
+        twitterExtractionState.inProgress = false;
+        twitterExtractionState.data = null;
+      };
+
+      overlay.appendChild(cancelButton);
+
+      // Add instruction text - inline like Facebook
+      const instructions = document.createElement('div');
+      instructions.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        padding: 24px;
+        border-radius: 12px;
+        text-align: center;
+        max-width: 400px;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+        pointer-events: none;
+        z-index: 10001;
+      `;
+      instructions.innerHTML = `
+        <h3 style="margin: 0 0 16px 0; color: #111827; font-size: 18px; font-weight: bold;">
+          🐦 Select a Twitter/X Post
+        </h3>
+        <p style="margin: 0; color: #6b7280; font-size: 14px; line-height: 1.5;">
+          Click on any post with an image to extract its data.<br/>
+          Posts with videos will be skipped automatically.
+        </p>
+      `;
+      document.body.appendChild(instructions);
+
+      // Auto-cancel after 2 minutes to prevent permanent state
+      setTimeout(() => {
+        if (twitterExtractionState.inProgress) {
+          cancelButton.click();
+        }
+      }, 120000);
+    }
+
+    function createTwitterPostSelectionOverlay(): HTMLDivElement {
+      const overlay = document.createElement('div');
+      overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.3);
+        z-index: 9998;
+        pointer-events: none;
+      `;
+      return overlay;
+    }
+
+    function findTwitterPosts(): Array<{element: HTMLElement, hasImage: boolean, hasVideo: boolean}> {
+      const posts: Array<{element: HTMLElement, hasImage: boolean, hasVideo: boolean}> = [];
+
+      // Multiple selectors for different Twitter layouts and post types
+      const postSelectors = [
+        // Main timeline posts (modern Twitter/X)
+        '[data-testid="tweet"]',
+        'article[data-testid="tweet"]',
+        '[data-testid="cellInnerDiv"] article',
+        // Legacy Twitter selectors
+        '.tweet',
+        '.js-stream-tweet',
+        '.js-tweet',
+        // Tweet thread elements
+        '[data-testid="tweetText"]',
+        // Profile posts
+        'div[data-testid="tweet"] > div',
+        // Alternative selectors for different layouts
+        '[role="article"]',
+        '.r-1habvwh', // Common tweet container class
+        // Broader selectors
+        'div[lang]' // Tweets often have lang attribute
+      ];
+
+      for (const selector of postSelectors) {
+        try {
+          const elements = document.querySelectorAll(selector);
+          elements.forEach((element) => {
+            // Check if this post has an image
+            const hasImage = element.querySelector('img[src*="pbs.twimg.com"], img[src*="video_thumb"], [data-testid="tweetPhoto"]') !== null;
+
+            // Check if this post has a video
+            const hasVideo = element.querySelector('video, [data-testid="videoPlayer"], [data-testid="playButton"]') !== null;
+
+            // Skip posts that are too small (likely not actual posts)
+            const rect = element.getBoundingClientRect();
+            if (rect.height < 50 || rect.width < 200) return;
+
+            // Skip if already added (same element might match multiple selectors)
+            if (posts.some(p => p.element === element)) return;
+
+            // Skip quote tweets and replies (too complex for initial implementation)
+            if (element.querySelector('[data-testid="socialContext"]')) return;
+
+            // Only include posts with images for initial implementation
+            if (hasImage) {
+              posts.push({
+                element: element as HTMLElement,
+                hasImage,
+                hasVideo
+              });
+            }
+          });
+        } catch (error) {
+          console.error(`Error with selector ${selector}:`, error);
+        }
+      }
+
+      // Remove duplicates and sort by position on page
+      return posts.filter((post, index, self) =>
+        index === self.findIndex(p => p.element === post.element)
+      ).filter((post) => {
+        // Additional filtering: make sure post is visible and has reasonable size
+        const rect = post.element.getBoundingClientRect();
+        return rect.height > 100 && rect.width > 200;
+      });
+    }
+
+    // Function to extract data from a selected Twitter post
+    function extractTwitterPostData(post: {element: HTMLElement, hasImage: boolean, hasVideo: boolean}): TwitterPostData | null {
+      try {
+        const postElement = post.element;
+        console.log('Extracting data from selected Twitter post:', postElement);
+
+        // Extract username - the person who posted this
+        let username = 'Unknown User';
+        console.log('=== Starting Twitter username extraction ===');
+        console.log('Post element:', postElement);
+        console.log('Post element HTML:', postElement.outerHTML.substring(0, 500) + '...');
+
+        const usernameSelectors = [
+          // Modern Twitter/X selectors
+          '[data-testid="User-Name"] span',
+          '[data-testid="User-Name"]',
+          'div[data-testid="User-Names"] span',
+          'div[data-testid="User-Names"]',
+          // Profile link selectors
+          'a[href^="/"][role="link"] span',
+          'a[href^="/"][role="link"] div span',
+          // Username in tweet header
+          '.tweet-header .username',
+          '.tweet-header .fullname',
+          // Alternative selectors
+          '[data-testid="tweet"] a[href^="/"] span',
+          '.r-18u37iz span', // Common username class
+          '.css-1dbjc4n a span',
+          // Fallback selectors
+          'a[role="link"][href*="/"] span',
+          'div[dir="auto"] span'
+        ];
+
+        for (const selector of usernameSelectors) {
+          const element = postElement.querySelector(selector);
+          console.log(`Trying selector: ${selector} -> Found:`, element);
+          if (element && element.textContent?.trim()) {
+            const text = element.textContent.trim();
+            console.log(`Selector ${selector} text content: "${text}"`);
+            // Filter out timestamps, handles with @, and other non-username text
+            if (text.length > 1 && text.length < 100 &&
+                !text.includes('@') && !text.includes('·') &&
+                !text.match(/^\d+$/) && !text.includes('ago') &&
+                !text.includes('h') && !text.includes('m') && !text.includes('s')) {
+              username = text;
+              console.log(`✅ Username found with selector: ${selector} -> "${username}"`);
+              break;
+            } else {
+              console.log(`❌ Username filtered out: "${text}" (length: ${text.length}, contains invalid chars)`);
+            }
+          } else {
+            console.log(`❌ Selector ${selector} found no element or empty text`);
+          }
+        }
+
+        // Extract caption/tweet text
+        let caption = 'No caption found';
+        const captionSelectors = [
+          // Main tweet text
+          '[data-testid="tweetText"]',
+          '[data-testid="tweetText"] span',
+          'div[data-testid="tweetText"]',
+          // Alternative text selectors
+          '.tweet-text',
+          '.js-tweet-text',
+          '.TweetTextSize',
+          // Broader selectors
+          'div[dir="auto"][lang]',
+          '.css-1dbjc4n div[lang]',
+          // Legacy selectors
+          '.tweet-content',
+          '.js-tweet-text-container'
+        ];
+
+        for (const selector of captionSelectors) {
+          const element = postElement.querySelector(selector);
+          if (element && element.textContent?.trim()) {
+            const text = element.textContent.trim();
+            // Filter out very short text that might be UI elements
+            if (text.length > 5) {
+              caption = text;
+              console.log(`Caption found with selector: ${selector} -> "${caption.substring(0, 100)}..."`);
+              break;
+            }
+          }
+        }
+
+        // Extract image URL
+        let image = undefined;
+        const imageSelectors = [
+          'img[src*="pbs.twimg.com"]',
+          'img[src*="video_thumb"]',
+          '[data-testid="tweetPhoto"] img',
+          '[data-testid="cardPhoto"] img',
+          // Alternative image selectors
+          '.media-image img',
+          '.AdaptiveMedia-photoContainer img',
+          '.js-adaptive-photo img',
+          // Broader selectors
+          'img[alt]:not([src*="emoji"]):not([src*="avatar"])'
+        ];
+
+        for (const selector of imageSelectors) {
+          const imgElement = postElement.querySelector(selector) as HTMLImageElement;
+          if (imgElement?.src && imgElement.src.startsWith('http')) {
+            // Skip very small images (likely profile pics or icons)
+            if (imgElement.naturalWidth > 200 || imgElement.width > 200) {
+              image = imgElement.src;
+              console.log(`Image found with selector: ${selector} -> ${image}`);
+              break;
+            }
+          }
+        }
+
+        // Extract timestamp
+        let timestamp = undefined;
+        const timestampSelectors = [
+          'time',
+          '[datetime]',
+          'a[href*="/status/"] time',
+          '.tweet-timestamp',
+          // Alternative timestamp selectors
+          'span[title]',
+          '[data-testid="Tweet-User-Names"] + div'
+        ];
+
+        for (const selector of timestampSelectors) {
+          const element = postElement.querySelector(selector);
+          if (element) {
+            const timeText = element.textContent?.trim() || element.getAttribute('datetime') || element.getAttribute('title');
+            if (timeText) {
+              timestamp = timeText;
+              console.log(`Timestamp found with selector: ${selector} -> "${timestamp}"`);
+              break;
+            }
+          }
+        }
+
+        // Extract engagement metrics
+        const engagement_metrics: TwitterPostData['engagement_metrics'] = {};
+
+        // Extract likes, retweets, replies
+        const metricsSelectors = [
+          '[data-testid="like"] span',
+          '[data-testid="retweet"] span',
+          '[data-testid="reply"] span',
+          '.tweet-stats-container span'
+        ];
+
+        metricsSelectors.forEach(selector => {
+          const element = postElement.querySelector(selector);
+          if (element && element.textContent?.trim()) {
+            const count = parseInt(element.textContent.replace(/[^\d]/g, ''));
+            if (count > 0) {
+              if (selector.includes('like')) engagement_metrics.likes = count;
+              if (selector.includes('retweet')) engagement_metrics.retweets = count;
+              if (selector.includes('reply')) engagement_metrics.replies = count;
+            }
+          }
+        });
+
+        console.log('Extracted Twitter post data:', {
+          username,
+          caption: caption.substring(0, 100) + '...',
+          image: image ? 'Yes' : 'No',
+          timestamp,
+          engagement_metrics
+        });
+
+        return {
+          username,
+          caption,
+          image,
+          postUrl: window.location.href,
+          timestamp,
+          engagement_metrics
+        };
+
+      } catch (error) {
+        console.error('Error extracting Twitter post data:', error);
+        return null;
+      }
     }
 
     // Function to extract Gmail data
@@ -1789,7 +2305,11 @@ export default defineContentScript({
           console.log('Post selector clicked!', index + 1);
           e.preventDefault();
           e.stopPropagation();
-          
+
+          // Add unique identifier to the selected post element for later matching
+          const uniqueId = `maiscam-facebook-selected-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          post.element.setAttribute('data-maiscam-selected-post', uniqueId);
+
           // Remove all indicators and overlays
           document.querySelectorAll('.maiscam-post-selector').forEach(el => el.remove());
           overlay.remove();
@@ -1799,9 +2319,15 @@ export default defineContentScript({
           // Remove cancel button if it exists
           const cancelBtn = document.querySelector('[style*="position: fixed"][style*="top: 20px"][style*="right: 20px"]');
           if (cancelBtn) cancelBtn.remove();
-          
+
           // Extract data from selected post and update state
           const extractedData = extractPostData(post);
+
+          // Add the unique identifier to the extracted data for matching
+          if (extractedData) {
+            extractedData.uniqueId = uniqueId;
+          }
+
           facebookExtractionState.data = extractedData;
           facebookExtractionState.inProgress = false;
           
@@ -1905,14 +2431,26 @@ export default defineContentScript({
         animation: slideDown 0.5s ease-out;
       `;
       
+      // Determine platform based on current URL
+      let platformName = 'Social media';
+      let platformEmoji = '📱';
+
+      if (window.location.hostname.includes('facebook.com')) {
+        platformName = 'Facebook';
+        platformEmoji = '📘';
+      } else if (window.location.hostname.includes('twitter.com') || window.location.hostname.includes('x.com')) {
+        platformName = 'Twitter/X';
+        platformEmoji = '🐦';
+      }
+
       notification.innerHTML = `
         <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
           <span style="font-size: 20px;">✅</span>
           <span style="font-weight: bold; font-size: 16px;">Post Selected Successfully!</span>
         </div>
         <p style="margin: 0; font-size: 14px; opacity: 0.9;">
-          Facebook post data has been extracted.<br/>
-          <strong>The extension sidebar will update automatically!</strong>
+          ${platformEmoji} ${platformName} post data has been extracted.<br/>
+          <strong>Analysis results will appear shortly!</strong>
         </p>
       `;
 
@@ -2356,6 +2894,7 @@ export default defineContentScript({
             const sources = [text, ariaLabel, title, href].filter(Boolean);
             
             for (const source of sources) {
+              if (!source) continue;
               const followerMatch = source.match(/(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:K|M|B)?\s*(?:follower|Follower)/i);
               if (followerMatch) {
                 author_followers_count = parseFollowerCount(followerMatch[1]);
@@ -2388,12 +2927,14 @@ export default defineContentScript({
         console.log('=== Follower count extraction complete ===');
 
         // Extract engagement metrics (likes, comments, shares, reactions)
-        let engagement_metrics = {
-          likes: undefined,
-          comments: undefined,
-          shares: undefined,
-          reactions: undefined
-        };
+        let engagement_metrics: {
+          likes?: number;
+          comments?: number;
+          shares?: number;
+          reactions?: number;
+          retweets?: number;
+          replies?: number;
+        } = {};
         
         console.log('=== Starting engagement metrics extraction ===');
 
@@ -2582,12 +3123,15 @@ export default defineContentScript({
             // Check for text patterns like "You and 1 other"
             const youAndOtherMatch = (text + ' ' + ariaLabel).match(/you and (\d+) other/i);
             if (youAndOtherMatch) {
-              const count = parseEngagementCount(youAndOtherMatch[1]) + 1; // +1 for "you"
-              engagement_metrics.reactions = count;
-              engagement_metrics.likes = count;
-              console.log(`✅ Reactions found in "you and others": "${text || ariaLabel}" -> ${count}`);
-              reactionsFound = true;
-              break;
+              const baseCount = parseEngagementCount(youAndOtherMatch[1]);
+              if (baseCount !== undefined) {
+                const count = baseCount + 1; // +1 for "you"
+                engagement_metrics.reactions = count;
+                engagement_metrics.likes = count;
+                console.log(`✅ Reactions found in "you and others": "${text || ariaLabel}" -> ${count}`);
+                reactionsFound = true;
+                break;
+              }
             }
           }
         }
@@ -2626,11 +3170,9 @@ export default defineContentScript({
           }
         }
         
-        // Default: If no reactions found, assume 0
+        // Default: If no reactions found, don't set values
         if (!reactionsFound) {
-          engagement_metrics.reactions = 0;
-          engagement_metrics.likes = 0;
-          console.log('👍 No reactions found, assuming 0');
+          console.log('👍 No reactions found');
         }
 
         // Step 5: Extract comments systematically
@@ -2730,10 +3272,9 @@ export default defineContentScript({
           }
         }
         
-        // Default: If no comments found, assume 0
+        // Default: If no comments found, don't set values
         if (!commentsFound) {
-          engagement_metrics.comments = 0;
-          console.log('💬 No comments found, assuming 0');
+          console.log('💬 No comments found');
         }
 
         // Step 6: Extract shares systematically
@@ -2833,10 +3374,9 @@ export default defineContentScript({
           }
         }
         
-        // Default: If no shares found, assume 0
+        // Default: If no shares found, don't set values
         if (!sharesFound) {
-          engagement_metrics.shares = 0;
-          console.log('🔄 No shares found, assuming 0');
+          console.log('🔄 No shares found');
         }
 
         // Filter out undefined values and only include metrics that were actually found
@@ -2938,20 +3478,29 @@ export default defineContentScript({
         }
       }
 
-      // Check if this is a social media analysis with medium/high risk - use Facebook protection system instead
+      // Check if this is a social media analysis with medium/high risk - use appropriate protection system
       if (analysisType === 'social_media' && result && !loading) {
         const riskLevel = result.risk_level || result.data?.risk_level;
         if (riskLevel && isHighOrMediumRisk(riskLevel)) {
-          console.log('🛡️ High/medium risk Facebook post detected, showing protection system instead of regular modal');
-          
+
           // Remove any existing analysis modal first (including loading modal)
           const existingModal = document.getElementById('maiscam-analysis-modal');
           if (existingModal) {
             existingModal.remove();
             console.log('🗑️ Removed existing analysis modal before showing protection system');
           }
-          
-          showFacebookProtection(result);
+
+          // Determine if this is Facebook or Twitter based on current site
+          if (window.location.hostname.includes('facebook.com')) {
+            console.log('🛡️ High/medium risk Facebook post detected, showing Facebook protection system');
+            showFacebookProtection(result);
+          } else if (window.location.hostname.includes('twitter.com') || window.location.hostname.includes('x.com')) {
+            console.log('🛡️ High/medium risk Twitter post detected, showing Twitter protection system');
+            showTwitterProtection(result);
+          } else {
+            console.log('🛡️ High/medium risk social media post detected, showing generic protection');
+            showFacebookProtection(result); // Fallback to Facebook protection
+          }
           return;
         }
       }
@@ -3601,6 +4150,37 @@ export default defineContentScript({
           // Return current state
           sendResponse(facebookExtractionState.data);
         }
+      } else if (message.type === 'START_TWITTER_EXTRACTION') {
+        console.log('Starting Twitter post data extraction');
+        startTwitterPostExtraction().then(() => {
+          sendResponse({ success: true });
+        }).catch((error) => {
+          console.error('Error starting Twitter data extraction:', error);
+          sendResponse({ success: false, error: error.message });
+        });
+        return true; // Indicates we will send a response asynchronously
+      } else if (message.type === 'CHECK_TWITTER_EXTRACTION_STATUS') {
+        console.log('Checking Twitter extraction status');
+        sendResponse({
+          inProgress: twitterExtractionState.inProgress,
+          data: twitterExtractionState.data,
+          startTime: twitterExtractionState.startTime
+        });
+      } else if (message.type === 'GET_TWITTER_DATA') {
+        console.log('Legacy Twitter post data extraction requested');
+        // For backward compatibility, start extraction if not already in progress
+        if (!twitterExtractionState.inProgress) {
+          startTwitterPostExtraction().then(() => {
+            sendResponse(twitterExtractionState.data);
+          }).catch((error) => {
+            console.error('Error in Twitter data extraction:', error);
+            sendResponse(null);
+          });
+          return true;
+        } else {
+          // Return current state
+          sendResponse(twitterExtractionState.data);
+        }
       } else if (message.type === 'SHOW_ANALYSIS_MODAL') {
         console.log('Showing analysis modal on website:', message.result, 'Type:', message.analysisType);
         showAnalysisModal(message.result, message.loading || false, message.analysisType || 'email');
@@ -3636,6 +4216,12 @@ export default defineContentScript({
     let facebookPostBlurOverlay: HTMLElement | null = null;
     let facebookWarningModal: HTMLElement | null = null;
     let blurredPostElement: HTMLElement | null = null; // Store reference to the specific post being blurred
+
+    // State tracking for Twitter post blur protection
+    let isTwitterPostBlurred = false;
+    let twitterPostBlurOverlay: HTMLElement | null = null;
+    let twitterWarningModal: HTMLElement | null = null;
+    let blurredTwitterPostElement: HTMLElement | null = null; // Store reference to the specific Twitter post being blurred
 
     // Function to check if risk level is medium or high in any language
     function isHighOrMediumRisk(riskLevel: string): boolean {
@@ -4127,6 +4713,14 @@ export default defineContentScript({
 
     // Multilingual text for warning modal - Facebook/social media version
     function getFacebookWarningModalTexts(language: string = 'en') {
+      // Detect platform for appropriate footer text
+      let platformText = 'social media';
+      if (window.location.hostname.includes('facebook.com')) {
+        platformText = 'Facebook';
+      } else if (window.location.hostname.includes('twitter.com') || window.location.hostname.includes('x.com')) {
+        platformText = 'Twitter/X';
+      }
+
       const texts = {
         en: {
           title: 'SOCIAL MEDIA SECURITY WARNING',
@@ -4138,7 +4732,7 @@ export default defineContentScript({
           leaveButton: '🚪 KEEP POST BLURRED',
           reportButton: '📢 REPORT POST',
           reportMessage: 'Thank you for reporting this post. We will investigate it.',
-          footer: 'Protected by mAIscam Browser Extension',
+          footer: `Make sure you're on ${platformText} viewing posts`,
           recommendedAction: 'Recommended Action:',
           passcode: 'I UNDERSTAND',
           // Report confirmation popup texts
@@ -4525,6 +5119,7 @@ export default defineContentScript({
         font-size: 14px !important;
         margin-bottom: 12px !important;
         box-sizing: border-box !important;
+        background-color: white !important;
       `;
 
       const continueButton = document.createElement('button');
@@ -4596,6 +5191,7 @@ export default defineContentScript({
       const buttonContainer = document.createElement('div');
       buttonContainer.style.cssText = `
         margin-top: 20px !important;
+        text-align: center !important;
       `;
 
       const leaveButton = document.createElement('button');
@@ -4616,8 +5212,12 @@ export default defineContentScript({
           // For email, keep the email blurred but allow user to continue using Gmail
           keepEmailBlurred();
         } else if (protectionType === 'social_media') {
-          // For Facebook, keep the post blurred but allow user to continue using Facebook
-          keepFacebookPostBlurred();
+          // For social media, keep the post blurred based on platform
+          if (window.location.hostname.includes('twitter.com') || window.location.hostname.includes('x.com')) {
+            keepTwitterPostBlurred();
+          } else {
+            keepFacebookPostBlurred();
+          }
         } else {
           // For website, clean up all modals and redirect to Google.com for safety
         cleanupAllModals();
@@ -4797,36 +5397,132 @@ export default defineContentScript({
       return overlay;
     }
 
+    // Function to create Twitter-specific post blur overlay
+    function createTwitterPostBlurOverlay(postElement: HTMLElement): HTMLElement {
+      const overlay = document.createElement('div');
+      overlay.id = 'maiscam-twitter-post-blur-overlay';
+
+      // Make the post element relatively positioned if it's not already
+      const computedStyle = window.getComputedStyle(postElement);
+      if (computedStyle.position === 'static') {
+        // Store original position value so we can restore it later
+        postElement.setAttribute('data-original-position', 'static');
+        postElement.style.position = 'relative';
+      }
+
+      // Create overlay that covers the entire post element
+      overlay.style.cssText = `
+        position: absolute !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        backdrop-filter: blur(20px) !important;
+        -webkit-backdrop-filter: blur(20px) !important;
+        background-color: rgba(29, 155, 240, 0.4) !important;
+        z-index: 999997 !important;
+        pointer-events: none !important;
+        border-radius: 12px !important;
+      `;
+
+      return overlay;
+    }
+
     // Function to find a specific Facebook post based on provided data
     function findSpecificFacebookPost(postData: any): HTMLElement | null {
       if (!postData) {
         console.warn('❌ No post data provided to find specific Facebook post');
         return null;
       }
-      
+
+      console.log('🔍 Looking for Facebook post with data:', {
+        username: postData.username,
+        uniqueId: postData.uniqueId,
+        captionStart: postData.caption?.substring(0, 50) + '...'
+      });
+
+      // First priority: Find by unique identifier if available
+      if (postData.uniqueId) {
+        const markedPost = document.querySelector(`[data-maiscam-selected-post="${postData.uniqueId}"]`);
+        if (markedPost) {
+          console.log('🎯 Found Facebook post by unique ID:', postData.uniqueId);
+          return markedPost as HTMLElement;
+        } else {
+          console.warn('⚠️ Marked post with unique ID not found:', postData.uniqueId);
+        }
+      }
+
+      // Second priority: Try to match based on username and caption
       const posts = findFacebookPosts();
-      
-      // Try to match based on the provided post data
       for (const post of posts) {
         const currentPostData = extractPostData(post);
-        if (currentPostData && 
+        if (currentPostData &&
             currentPostData.username === postData.username &&
             currentPostData.caption === postData.caption) {
-          console.log('🎯 Found matching Facebook post for blur protection');
+          console.log('🎯 Found matching Facebook post by content');
           console.log('🔍 Matched by username:', currentPostData.username);
           console.log('🔍 Matched by caption:', currentPostData.caption.substring(0, 100) + '...');
           return post.element;
         }
       }
-      
-      // Fallback: find the first post with an image (most likely candidate)
+
+      // Last resort: find the first post with an image (most likely candidate)
       const postWithImage = posts.find(post => post.hasImage);
       if (postWithImage) {
-        console.log('⚠️ Using fallback: first post with image for blur protection');
+        console.log('⚠️ Using fallback: first Facebook post with image for blur protection');
         return postWithImage.element;
       }
-      
+
       console.warn('❌ Could not find Facebook post to blur');
+      return null;
+    }
+
+    // Function to find specific Twitter post to blur
+    function findSpecificTwitterPost(postData: any): HTMLElement | null {
+      if (!postData) {
+        console.warn('❌ No post data provided to find specific Twitter post');
+        return null;
+      }
+
+      console.log('🔍 Looking for Twitter post with data:', {
+        username: postData.username,
+        uniqueId: postData.uniqueId,
+        captionStart: postData.caption?.substring(0, 50) + '...'
+      });
+
+      // First priority: Find by unique identifier if available
+      if (postData.uniqueId) {
+        const markedPost = document.querySelector(`[data-maiscam-selected-post="${postData.uniqueId}"]`);
+        if (markedPost) {
+          console.log('🎯 Found Twitter post by unique ID:', postData.uniqueId);
+          return markedPost as HTMLElement;
+        } else {
+          console.warn('⚠️ Marked post with unique ID not found:', postData.uniqueId);
+        }
+      }
+
+      // Second priority: Try to match based on username and caption
+      const posts = findTwitterPosts();
+      for (const post of posts) {
+        const currentPostData = extractTwitterPostData(post);
+        if (currentPostData &&
+            currentPostData.username === postData.username &&
+            currentPostData.caption === postData.caption) {
+          console.log('🎯 Found matching Twitter post by content');
+          console.log('🔍 Matched by username:', currentPostData.username);
+          console.log('🔍 Matched by caption:', currentPostData.caption.substring(0, 100) + '...');
+          return post.element;
+        }
+      }
+
+      // Last resort: find the first post with an image (most likely candidate)
+      const postWithImage = posts.find(post => post.hasImage);
+      if (postWithImage) {
+        console.log('⚠️ Using fallback: first Twitter post with image for blur protection');
+        return postWithImage.element;
+      }
+
+      console.warn('❌ Could not find Twitter post to blur');
       return null;
     }
 
@@ -4897,6 +5593,68 @@ export default defineContentScript({
       }, 100);
     }
 
+    // Function to show Twitter post protection (blur specific post + modal)
+    function showTwitterProtection(analysisResult: any, specificPostData?: any) {
+      console.log('🛡️ Showing Twitter post protection for medium/high risk');
+      console.log('🔍 Twitter extraction state data:', twitterExtractionState.data);
+      console.log('🔍 Specific post data provided:', specificPostData);
+
+      // Find the specific post to blur using provided post data or fallback to extraction state
+      const postDataToUse = specificPostData || twitterExtractionState.data;
+      console.log('🔍 Using post data for matching:', postDataToUse);
+
+      const postToBlur = findSpecificTwitterPost(postDataToUse);
+      if (!postToBlur) {
+        console.error('❌ Cannot show Twitter protection: post not found');
+        console.log('🔍 Available posts on page:', findTwitterPosts().length);
+        // Fallback to regular modal
+        showAnalysisModal(analysisResult, false, 'social_media');
+        return;
+      }
+
+      // Check if this specific post is already blurred
+      const existingOverlay = postToBlur.querySelector('#maiscam-twitter-post-blur-overlay');
+      if (existingOverlay) {
+        console.log('⚠️ This specific Twitter post is already blurred, showing modal only');
+        // Just show the modal for this already-blurred post
+        twitterWarningModal = createWarningModal(analysisResult, 'social_media');
+        document.body.appendChild(twitterWarningModal);
+        return;
+      }
+
+      // Store reference to the post being blurred
+      blurredTwitterPostElement = postToBlur;
+
+      // Clean up any existing warning modals (but preserve post blur overlays)
+      if (twitterWarningModal) {
+        twitterWarningModal.remove();
+        twitterWarningModal = null;
+      }
+
+      // Clean up other modals but preserve Twitter post blurs
+      cleanupModalsExceptTwitterBlur();
+
+      // Create and show post-specific blur overlay
+      twitterPostBlurOverlay = createTwitterPostBlurOverlay(postToBlur);
+      postToBlur.appendChild(twitterPostBlurOverlay);
+
+      // Create and show warning modal
+      twitterWarningModal = createWarningModal(analysisResult, 'social_media');
+      document.body.appendChild(twitterWarningModal);
+
+      // Update state - now we're tracking the most recent post being processed
+      isTwitterPostBlurred = true;
+
+      // Additional cleanup after a short delay to catch any late-arriving modals
+      setTimeout(() => {
+        const existingModal = document.getElementById('maiscam-analysis-modal');
+        if (existingModal && existingModal !== twitterWarningModal) {
+          existingModal.remove();
+          console.log('🗑️ Removed late-arriving analysis modal');
+        }
+      }, 100);
+    }
+
     // Function to clean up all modals
     function cleanupAllModals() {
       // Remove all possible modal instances
@@ -4934,6 +5692,29 @@ export default defineContentScript({
         }
       });
       
+      // Also check for post blur overlay in the entire document (in case it's nested)
+      // But only remove it if we're not trying to preserve it
+      // This function is called when we want to preserve it, so we skip this
+    }
+
+    // Function to clean up modals but preserve Twitter post blur if needed
+    function cleanupModalsExceptTwitterBlur() {
+      // Remove modals but keep Twitter post blur overlay if it should stay
+      const modalSelectors = [
+        '#maiscam-analysis-modal',
+        '#maiscam-warning-modal',
+        '#maiscam-blur-overlay'
+        // Note: deliberately exclude '#maiscam-twitter-post-blur-overlay'
+      ];
+
+      modalSelectors.forEach(selector => {
+        const modal = document.querySelector(selector);
+        if (modal) {
+          modal.remove();
+          console.log(`🗑️ Removed modal: ${selector}`);
+        }
+      });
+
       // Also check for post blur overlay in the entire document (in case it's nested)
       // But only remove it if we're not trying to preserve it
       // This function is called when we want to preserve it, so we skip this
@@ -5062,6 +5843,37 @@ export default defineContentScript({
       if (!overlayInDOM && facebookPostBlurOverlay && blurredPostElement) {
         console.warn('⚠️ Blur overlay reference exists but not in DOM - re-adding');
         blurredPostElement.appendChild(facebookPostBlurOverlay);
+      }
+    }
+
+    // Function to keep Twitter post blurred (quit safely option)
+    function keepTwitterPostBlurred() {
+      console.log('🔒 Keeping Twitter post blurred - user chose to quit safely');
+
+      // Clean up other modals but preserve the Twitter post blur
+      cleanupModalsExceptTwitterBlur();
+
+      // Only remove the warning modal, keep the blur overlay
+      if (twitterWarningModal) {
+        twitterWarningModal.remove();
+        twitterWarningModal = null;
+      }
+
+      // Keep the blur state active and the overlay intact
+      // isTwitterPostBlurred remains true
+      // twitterPostBlurOverlay remains in place
+      // blurredTwitterPostElement reference is preserved
+
+      console.log('✅ Twitter post remains blurred, user can continue using Twitter safely');
+      console.log('🛡️ Blur overlay status:', !!twitterPostBlurOverlay);
+      console.log('🛡️ Blur state:', isTwitterPostBlurred);
+
+      // Double-check that the blur overlay is still in the DOM
+      const overlayInDOM = document.getElementById('maiscam-twitter-post-blur-overlay');
+      console.log('🛡️ Blur overlay in DOM:', !!overlayInDOM);
+      if (!overlayInDOM && twitterPostBlurOverlay && blurredTwitterPostElement) {
+        console.warn('⚠️ Blur overlay reference exists but not in DOM - re-adding');
+        blurredTwitterPostElement.appendChild(twitterPostBlurOverlay);
       }
     }
 

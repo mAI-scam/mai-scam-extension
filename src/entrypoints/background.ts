@@ -24,6 +24,7 @@ export default defineBackground(() => {
     extractedData: any;
     websiteData: any;
     facebookData: any;
+    twitterData: any;
     scamType: 'email' | 'website' | 'socialmedia';
     timestamp: number;
     reportStatus?: { reportId?: string; timestamp?: number };
@@ -589,7 +590,7 @@ export default defineBackground(() => {
       // Store analysis result and extracted data for tab persistence
       const tabId = sender.tab?.id || message.tabId;
       if (tabId && message.analysisResult) {
-        const analysisData = message.extractedData || message.websiteData || message.facebookData;
+        const analysisData = message.extractedData || message.websiteData || message.facebookData || message.twitterData;
         const analysisHash = generateAnalysisHash(analysisData, message.scamType);
         const reportKey = getReportKey(tabId, analysisHash);
         const existingReport = reportStatus[reportKey];
@@ -599,6 +600,7 @@ export default defineBackground(() => {
           extractedData: message.extractedData,
           websiteData: message.websiteData,
           facebookData: message.facebookData,
+          twitterData: message.twitterData,
           scamType: message.scamType,
           timestamp: Date.now(),
           reportStatus: existingReport ? { reportId: existingReport.reportId, timestamp: existingReport.timestamp } : undefined
@@ -619,6 +621,7 @@ export default defineBackground(() => {
           extractedData: state.extractedData,
           websiteData: state.websiteData,
           facebookData: state.facebookData,
+          twitterData: state.twitterData,
           scamType: state.scamType,
           reportStatus: state.reportStatus
         });
