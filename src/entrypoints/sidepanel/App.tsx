@@ -334,7 +334,7 @@ function App() {
   const [websiteData, setWebsiteData] = useState<WebsiteData | null>(null);
   const [facebookData, setFacebookData] = useState<FacebookPostData | null>(null);
   const [twitterData, setTwitterData] = useState<TwitterPostData | null>(null);
-  const [selectedLanguage, setSelectedLanguage] = useState<string>('zh');
+  const [selectedLanguage, setSelectedLanguage] = useState<string>('en');
   const [scanMode, setScanMode] = useState<ScanMode>('email');
   const [facebookExtractionInProgress, setFacebookExtractionInProgress] = useState(false);
   const [twitterExtractionInProgress, setTwitterExtractionInProgress] = useState(false);
@@ -1941,11 +1941,15 @@ function App() {
           {/* Footer Instructions */}
           <div className="pt-4 border-t border-gray-200 text-center">
             <p className="text-xs text-gray-400">
-              {scanMode === 'email' 
+              {scanMode === 'email'
                 ? 'Make sure you\'re on Gmail with an email open'
                 : scanMode === 'website'
                 ? 'Works on any website - just click scan to extract information'
-                : 'Make sure you\'re on Facebook viewing posts'
+                : autoDetectedSite?.platform === 'facebook'
+                ? 'Make sure you\'re on Facebook viewing posts'
+                : autoDetectedSite?.platform === 'twitter'
+                ? 'Make sure you\'re on Twitter/X viewing posts'
+                : 'Make sure you\'re on Facebook or Twitter/X viewing posts'
               }
             </p>
           </div>

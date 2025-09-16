@@ -5135,6 +5135,7 @@ export default defineContentScript({
         font-weight: 600 !important;
         cursor: not-allowed !important;
         transition: all 0.2s !important;
+        text-align: center !important;
       `;
 
       // Passcode validation
@@ -5152,6 +5153,7 @@ export default defineContentScript({
             font-weight: 600 !important;
             cursor: pointer !important;
             transition: all 0.2s !important;
+            text-align: center !important;
           `;
         } else {
           continueButton.disabled = true;
@@ -5165,6 +5167,7 @@ export default defineContentScript({
             font-weight: 600 !important;
             cursor: not-allowed !important;
             transition: all 0.2s !important;
+            text-align: center !important;
           `;
         }
       });
