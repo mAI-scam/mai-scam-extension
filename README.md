@@ -10,7 +10,7 @@ Financial scams devastate SEA with **82% annual surge** causing **$43.8B losses*
 ## 🏆 Key Features
 - **📧 Gmail Integration** - Real-time email scam detection
 - **🌐 Website Scanner** - Instant legitimacy verification  
-- **📱 Facebook Guard** - Interactive post analysis
+- **📱 Social Media Guard** - Interactive post analysis for Facebook and Twitter/X
 - **🌍 13 SEA Languages** - English, Bahasa Malaysia, Chinese, Vietnamese, Thai, Filipino, Indonesian, Javanese, Sundanese, Khmer, Lao, Myanmar, Tamil
 - **⚡ Sub-3s Analysis** - Real-time threat detection
 - **📢 One-Click Reporting** - Multilingual scam reporting to authorities
@@ -24,6 +24,10 @@ Financial scams devastate SEA with **82% annual surge** causing **$43.8B losses*
 - **Background Service** - Persistent state management
 
 ## 📦 Installation
+
+### 🔗 **Detailed Installation Guide**
+**For complete step-by-step installation instructions with screenshots, visit:**
+**https://mai-scam.vercel.app/installation**
 
 ### Quick Start (Recommended)
 1. Download `maiscam-1.0.0-chrome.zip` from this repository
@@ -42,12 +46,12 @@ npm install && npm run build
 ## 🚀 Usage
 - **Email**: Open Gmail → Click extension → Analyze Email
 - **Website**: Navigate to site → Click extension → Analyze Website
-- **Social**: Browse Facebook → Click extension → Scan Post → Select content
+- **Social**: Browse Facebook or Twitter/X → Click extension → Scan Post → Select content
 - **Report**: When threats detected → One-click report to authorities
 
 ## 🎯 Impact
 - **Target**: Elderly/underserved SEA communities
-- **Coverage**: 13 languages, 3 platforms (email/web/social)
+- **Coverage**: 13 languages, multiple platforms (email/web/Facebook/Twitter)
 - **Performance**: Sub-3s analysis, 95%+ accuracy
 - **Goal**: Prevent $43.8B annual financial losses
 
