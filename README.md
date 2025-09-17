@@ -49,6 +49,9 @@ npm install && npm run build
 - **Social**: Browse Facebook or Twitter/X → Click extension → Scan Post → Select content
 - **Report**: When threats detected → One-click report to authorities
 
+### ⏱️ Performance Note
+**First detection may take 10-15 seconds** as the backend AWS Lambda function loads (cold start). Subsequent detections will be fast (sub-3s) as the function remains warm.
+
 ## 🎯 Impact
 - **Target**: Elderly/underserved SEA communities
 - **Coverage**: 13 languages, multiple platforms (email/web/Facebook/Twitter)
