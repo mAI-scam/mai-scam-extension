@@ -5261,6 +5261,7 @@ export default defineContentScript({
         margin-bottom: 12px !important;
         box-sizing: border-box !important;
         background-color: white !important;
+        color: #111827 !important;
       `;
 
       const continueButton = document.createElement('button');
@@ -5319,7 +5320,12 @@ export default defineContentScript({
           if (protectionType === 'email') {
             removeEmailProtection();
           } else if (protectionType === 'social_media') {
-            removeFacebookProtection();
+            // Detect platform and call appropriate removal function
+            if (window.location.hostname.includes('twitter.com') || window.location.hostname.includes('x.com')) {
+              removeTwitterProtection();
+            } else {
+              removeFacebookProtection();
+            }
           } else {
           removeWebsiteProtection();
           }
@@ -6116,6 +6122,43 @@ export default defineContentScript({
         console.warn('⚠️ Blur overlay reference exists but not in DOM - re-adding');
         blurredPostElement.appendChild(facebookPostBlurOverlay);
       }
+    }
+
+    // Function to remove Twitter post protection
+    function removeTwitterProtection() {
+      console.log('🔓 Removing Twitter post protection - user acknowledged risk');
+
+      if (twitterPostBlurOverlay) {
+        twitterPostBlurOverlay.remove();
+        twitterPostBlurOverlay = null;
+      }
+
+      if (twitterWarningModal) {
+        twitterWarningModal.remove();
+        twitterWarningModal = null;
+      }
+
+      // Restore original position style of the post element if we modified it
+      if (blurredTwitterPostElement) {
+        const originalPosition = blurredTwitterPostElement.getAttribute('data-original-position');
+        if (originalPosition) {
+          // Restore the original position value
+          if (originalPosition === 'static') {
+            blurredTwitterPostElement.style.position = '';
+          } else {
+            blurredTwitterPostElement.style.position = originalPosition;
+          }
+          blurredTwitterPostElement.removeAttribute('data-original-position');
+        }
+      }
+
+      // Clean up all modals to ensure nothing is left behind
+      cleanupAllModals();
+
+      isTwitterPostBlurred = false;
+      blurredTwitterPostElement = null;
+
+      console.log('✅ Twitter post protection removed successfully');
     }
 
     // Function to keep Twitter post blurred (quit safely option)
