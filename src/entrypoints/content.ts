@@ -885,9 +885,6 @@ export default defineContentScript({
           const instructions = document.querySelector('[style*="transform: translate(-50%, -50%)"]');
           if (instructions) instructions.remove();
 
-          // Remove cancel button
-          const cancelBtn = document.querySelector('[style*="position: fixed"][style*="top: 20px"][style*="right: 20px"]');
-          if (cancelBtn) cancelBtn.remove();
 
           // Extract data from selected post
           const extractedData = extractTwitterPostData(post);
@@ -922,40 +919,7 @@ export default defineContentScript({
         postElement.appendChild(indicator);
       });
 
-      // Add cancel button to overlay
-      const cancelButton = document.createElement('button');
-      cancelButton.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background: #ef4444;
-        color: white;
-        border: none;
-        padding: 12px 24px;
-        border-radius: 8px;
-        font-weight: bold;
-        cursor: pointer;
-        z-index: 10002;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
-        pointer-events: auto;
-      `;
-      cancelButton.textContent = '✕ Cancel';
-      cancelButton.onclick = () => {
-        document.querySelectorAll('.maiscam-twitter-post-selector').forEach(el => el.remove());
-        overlay.remove();
-        // Remove instructions
-        const instructions = document.querySelector('[style*="transform: translate(-50%, -50%)"]');
-        if (instructions) instructions.remove();
-        cancelButton.remove();
-
-        twitterExtractionState.inProgress = false;
-        twitterExtractionState.data = null;
-      };
-
-      overlay.appendChild(cancelButton);
-
-      // Add instruction text - inline like Facebook
+      // Add instruction text with integrated cancel button
       const instructions = document.createElement('div');
       instructions.style.cssText = `
         position: fixed;
@@ -968,18 +932,49 @@ export default defineContentScript({
         text-align: center;
         max-width: 400px;
         box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
-        pointer-events: none;
+        pointer-events: auto;
         z-index: 10001;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       `;
+
+      // Create cancel button for the popup
+      const cancelButton = document.createElement('button');
+      cancelButton.style.cssText = `
+        background: #ef4444;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 8px;
+        font-weight: bold;
+        cursor: pointer;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+        margin-top: 16px;
+        font-size: 14px;
+        transition: background-color 0.2s;
+      `;
+      cancelButton.textContent = '✕ Cancel Selection';
+      cancelButton.onmouseover = () => cancelButton.style.backgroundColor = '#dc2626';
+      cancelButton.onmouseout = () => cancelButton.style.backgroundColor = '#ef4444';
+      cancelButton.onclick = () => {
+        document.querySelectorAll('.maiscam-twitter-post-selector').forEach(el => el.remove());
+        overlay.remove();
+        instructions.remove();
+
+        twitterExtractionState.inProgress = false;
+        twitterExtractionState.data = null;
+      };
+
       instructions.innerHTML = `
         <h3 style="margin: 0 0 16px 0; color: #111827; font-size: 18px; font-weight: bold;">
           🐦 Select a Twitter/X Post
         </h3>
-        <p style="margin: 0; color: #6b7280; font-size: 14px; line-height: 1.5;">
+        <p style="margin: 0 0 16px 0; color: #6b7280; font-size: 14px; line-height: 1.5;">
           Click on any post with an image to extract its data.<br/>
           Posts with videos will be skipped automatically.
         </p>
       `;
+      instructions.appendChild(cancelButton);
       document.body.appendChild(instructions);
 
       // Auto-cancel after 2 minutes to prevent permanent state
@@ -2457,9 +2452,6 @@ export default defineContentScript({
           // Remove instructions
           const instructions = document.querySelector('[style*="transform: translate(-50%, -50%)"]');
           if (instructions) instructions.remove();
-          // Remove cancel button if it exists
-          const cancelBtn = document.querySelector('[style*="position: fixed"][style*="top: 20px"][style*="right: 20px"]');
-          if (cancelBtn) cancelBtn.remove();
 
           // Extract data from selected post and update state
           const extractedData = extractPostData(post);
@@ -2492,51 +2484,17 @@ export default defineContentScript({
         };
       });
 
-      // Add cancel button to overlay
-      const cancelButton = document.createElement('button');
-      cancelButton.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background: #ef4444;
-        color: white;
-        border: none;
-        padding: 12px 24px;
-        border-radius: 8px;
-        font-weight: bold;
-        cursor: pointer;
-        z-index: 10002;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
-        pointer-events: auto;
-      `;
-      cancelButton.textContent = '✕ Cancel';
-      cancelButton.onclick = () => {
-        document.querySelectorAll('.maiscam-post-selector').forEach(el => el.remove());
-        overlay.remove();
-        // Remove instructions
-        const instructions = document.querySelector('[style*="transform: translate(-50%, -50%)"]');
-        if (instructions) instructions.remove();
-        cancelButton.remove();
-        
-        // Update state
-        facebookExtractionState.inProgress = false;
-        facebookExtractionState.data = null;
-      };
-      document.body.appendChild(cancelButton);
+      // Cancel button will be integrated into instructions popup
 
       // Auto-remove after 60 seconds
-      setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         if (document.body.contains(overlay)) {
           document.querySelectorAll('.maiscam-post-selector').forEach(el => el.remove());
           overlay.remove();
           // Remove instructions
           const instructions = document.querySelector('[style*="transform: translate(-50%, -50%)"]');
           if (instructions) instructions.remove();
-          if (document.body.contains(cancelButton)) {
-            cancelButton.remove();
-          }
-          
+
           // Update state - timed out
           facebookExtractionState.inProgress = false;
           facebookExtractionState.data = null;
@@ -2649,19 +2607,52 @@ export default defineContentScript({
         text-align: center;
         max-width: 400px;
         box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
-        pointer-events: none;
+        pointer-events: auto;
         z-index: 10001;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       `;
+
+      // Create cancel button for the popup
+      const cancelButton = document.createElement('button');
+      cancelButton.style.cssText = `
+        background: #ef4444;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 8px;
+        font-weight: bold;
+        cursor: pointer;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+        margin-top: 16px;
+        font-size: 14px;
+        transition: background-color 0.2s;
+      `;
+      cancelButton.textContent = '✕ Cancel Selection';
+      cancelButton.onmouseover = () => cancelButton.style.backgroundColor = '#dc2626';
+      cancelButton.onmouseout = () => cancelButton.style.backgroundColor = '#ef4444';
+      cancelButton.onclick = () => {
+        document.querySelectorAll('.maiscam-post-selector').forEach(el => el.remove());
+        overlay.remove();
+        instructions.remove();
+        clearTimeout(timeoutId);
+
+        // Update state
+        facebookExtractionState.inProgress = false;
+        facebookExtractionState.data = null;
+      };
+
       instructions.innerHTML = `
         <h3 style="margin: 0 0 16px 0; color: #111827; font-size: 18px; font-weight: bold;">
           📱 Select a Facebook Post
         </h3>
-        <p style="margin: 0; color: #6b7280; font-size: 14px; line-height: 1.5;">
+        <p style="margin: 0 0 16px 0; color: #6b7280; font-size: 14px; line-height: 1.5;">
           Click on any post with an image to extract its data.<br/>
           Posts with videos will be skipped automatically.
         </p>
       `;
-      
+      instructions.appendChild(cancelButton);
+
       document.body.appendChild(instructions);
       return overlay;
     }
