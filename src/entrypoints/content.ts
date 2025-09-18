@@ -2485,21 +2485,7 @@ export default defineContentScript({
       });
 
       // Cancel button will be integrated into instructions popup
-
-      // Auto-remove after 60 seconds
-      const timeoutId = setTimeout(() => {
-        if (document.body.contains(overlay)) {
-          document.querySelectorAll('.maiscam-post-selector').forEach(el => el.remove());
-          overlay.remove();
-          // Remove instructions
-          const instructions = document.querySelector('[style*="transform: translate(-50%, -50%)"]');
-          if (instructions) instructions.remove();
-
-          // Update state - timed out
-          facebookExtractionState.inProgress = false;
-          facebookExtractionState.data = null;
-        }
-      }, 60000);
+      // Timeout will be set up after instructions are created
     }
 
     // Function to show success notification after post selection
@@ -2631,16 +2617,6 @@ export default defineContentScript({
       cancelButton.textContent = '✕ Cancel Selection';
       cancelButton.onmouseover = () => cancelButton.style.backgroundColor = '#dc2626';
       cancelButton.onmouseout = () => cancelButton.style.backgroundColor = '#ef4444';
-      cancelButton.onclick = () => {
-        document.querySelectorAll('.maiscam-post-selector').forEach(el => el.remove());
-        overlay.remove();
-        instructions.remove();
-        clearTimeout(timeoutId);
-
-        // Update state
-        facebookExtractionState.inProgress = false;
-        facebookExtractionState.data = null;
-      };
 
       instructions.innerHTML = `
         <h3 style="margin: 0 0 16px 0; color: #111827; font-size: 18px; font-weight: bold;">
@@ -2654,6 +2630,34 @@ export default defineContentScript({
       instructions.appendChild(cancelButton);
 
       document.body.appendChild(instructions);
+
+      // Auto-remove timeout - set up after instructions are created
+      const timeoutId = setTimeout(() => {
+        if (document.body.contains(overlay)) {
+          document.querySelectorAll('.maiscam-post-selector').forEach(el => el.remove());
+          overlay.remove();
+          // Remove instructions
+          if (instructions && document.body.contains(instructions)) {
+            instructions.remove();
+          }
+
+          // Update state - timed out
+          facebookExtractionState.inProgress = false;
+          facebookExtractionState.data = null;
+        }
+      }, 60000);
+
+      // Set up cancel button click handler now that timeoutId is defined
+      cancelButton.onclick = () => {
+        document.querySelectorAll('.maiscam-post-selector').forEach(el => el.remove());
+        overlay.remove();
+        instructions.remove();
+        clearTimeout(timeoutId);
+
+        // Update state
+        facebookExtractionState.inProgress = false;
+        facebookExtractionState.data = null;
+      };
       return overlay;
     }
 
