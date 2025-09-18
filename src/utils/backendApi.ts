@@ -137,7 +137,7 @@ const BACKEND_CONFIG = {
     createApiKey: '/auth/api-key',
     createToken: '/auth/token'
   },
-  timeout: 30000, // 30 seconds timeout
+  timeout: 120000, // 2 minutes timeout
   
   // Authentication configuration for web extension
   authConfig: {
